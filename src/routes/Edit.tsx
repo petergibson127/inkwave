@@ -22,6 +22,15 @@ function newDocument(): InkwaveDocument {
   }
 }
 
+// Fill in Week 2 fields for documents saved before they existed.
+function migrateDocument(doc: InkwaveDocument): InkwaveDocument {
+  return {
+    scasLimitN: 'infinite',
+    scasSessionSeed: uuidv4(),
+    ...doc,
+  }
+}
+
 export function Edit() {
   const [doc, setDoc] = useState<InkwaveDocument | null>(null)
 
@@ -33,7 +42,7 @@ export function Edit() {
         if (storedId) {
           const loaded = await loadDocument(storedId)
           if (loaded) {
-            setDoc(loaded)
+            setDoc(migrateDocument(loaded))
             return
           }
         }
@@ -44,7 +53,7 @@ export function Edit() {
           const loaded = await loadDocument(metas[0].id)
           if (loaded) {
             localStorage.setItem(ACTIVE_DOC_KEY, loaded.id)
-            setDoc(loaded)
+            setDoc(migrateDocument(loaded))
             return
           }
         }
@@ -66,7 +75,6 @@ export function Edit() {
   }
 
   if (!doc) {
-    // Minimal loading state — just a blank parchment while OPFS resolves.
     return <div className="min-h-screen bg-parchment" />
   }
 
