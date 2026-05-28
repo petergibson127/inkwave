@@ -7,6 +7,7 @@ import { upsertMeta } from '../storage/indexeddb'
 import { RedHighlightExtension, SCAS_HINT_META } from './extensions/RedHighlightExtension'
 import type { HintState } from './extensions/RedHighlightExtension'
 import { ThesaurusPopover } from './suggestions/ThesaurusPopover'
+import { prefetchSynonyms } from './suggestions/thesaurus'
 import { LimitSelector } from '../components/LimitSelector'
 import { ComplianceContext, useComplianceProvider } from '../scas/compliance'
 
@@ -26,6 +27,9 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
 
   // Shared mutable ref read synchronously by the decoration plugin.
   const hintStateRef = useRef<HintState>({ focusedPos: null, showHints: true })
+
+  // Debounced prefetch — fires after typing pauses so popover opens instantly.
+  const prefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const compliance = useComplianceProvider()
 
@@ -80,6 +84,15 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
         updatedAt: updated.updatedAt,
       })
 
+      // Prefetch synonyms for all visible red words after a short pause.
+      if (prefetchTimerRef.current) clearTimeout(prefetchTimerRef.current)
+      prefetchTimerRef.current = setTimeout(() => {
+        const words = Array.from(
+          e.view.dom.querySelectorAll<HTMLElement>('.scas-red')
+        ).map(el => el.dataset.word ?? '').filter(Boolean)
+        if (words.length > 0) prefetchSynonyms([...new Set(words)])
+      }, 600)
+
       const { $from } = e.state.selection
       let pIdx = 0
       e.state.doc.nodesBetween(0, $from.pos, (node) => {
@@ -93,6 +106,17 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   useEffect(() => {
     editorRef.current = editor
   }, [editor])
+
+  // Warm the synonym cache as soon as the editor is ready (existing red words).
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return
+    requestAnimationFrame(() => {
+      const words = Array.from(
+        editor.view.dom.querySelectorAll<HTMLElement>('.scas-red')
+      ).map(el => el.dataset.word ?? '').filter(Boolean)
+      if (words.length > 0) prefetchSynonyms([...new Set(words)])
+    })
+  }, [editor]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return
