@@ -24,11 +24,7 @@ function newDocument(): InkwaveDocument {
 
 // Fill in Week 2 fields for documents saved before they existed.
 function migrateDocument(doc: InkwaveDocument): InkwaveDocument {
-  return {
-    scasLimitN: 'infinite',
-    scasSessionSeed: uuidv4(),
-    ...doc,
-  }
+  return Object.assign({ scasLimitN: 'infinite', scasSessionSeed: uuidv4() }, doc)
 }
 
 export function Edit() {

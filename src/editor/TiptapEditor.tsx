@@ -91,7 +91,6 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
 
   // Keep editorRef in sync so the hint-change handler can reach the editor.
   useEffect(() => {
-    // @ts-expect-error — writing a normally-readonly ref for internal use
     editorRef.current = editor
   }, [editor])
 
