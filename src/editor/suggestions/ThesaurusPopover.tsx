@@ -113,17 +113,18 @@ export function ThesaurusPopover({
       if (!paraEl) return
 
       let lineFrom: number | null = null
+      let lineFromX  = Infinity   // x-coord of lineFrom — picks true visual line start
       let lineTo:   number | null = null
       let charsBefore = 0
       let charsAfter  = 0
-      // firstWordChars: count of before-chars up to the first space on the line.
-      // The widget width is based only on this count — we only need to anchor
-      // the first word so it cannot flow back to the previous line.
-      let firstWordChars  = 0
-      let pastFirstSpace  = false
 
       const walker = document.createTreeWalker(paraEl, NodeFilter.SHOW_TEXT)
       const r = document.createRange()
+
+      // Use a strict vertical tolerance: chars must have their midpoint within
+      // 30% of the focused word's line-box height from the line centre.
+      // This avoids accidentally catching chars on adjacent lines at any zoom.
+      const tolerance = fRect.height * 0.3
 
       for (;;) {
         const node = walker.nextNode() as Text | null
@@ -136,10 +137,6 @@ export function ThesaurusPopover({
         const nr = r.getBoundingClientRect()
         if (nr.bottom < fRect.top - 2 || nr.top > fRect.bottom + 2) continue
 
-        // Use a strict vertical tolerance: chars must have their midpoint within
-        // 30% of the focused word's line-box height from the line centre.
-        // This avoids accidentally catching chars on adjacent lines at any zoom.
-        const tolerance = fRect.height * 0.3
         for (let i = 0; i < node.length; i++) {
           r.setStart(node, i)
           r.setEnd(node, i + 1)
@@ -148,24 +145,18 @@ export function ThesaurusPopover({
             try {
               const pmPos = editor.view.posAtDOM(node, i)
               if (pmPos < cycle!.from) {
-                // Char is before the focused word on this visual line.
-                if (lineFrom === null || pmPos < lineFrom) lineFrom = pmPos
                 charsBefore++
-                // Track the first word on the line (up to first whitespace).
-                // Walker order is left-to-right, so the first space encountered
-                // is the boundary between the first and second words.
-                if (!pastFirstSpace) {
-                  const ch = node.data[i] ?? ''
-                  if (ch === ' ' || ch === '\t' || ch === ' ') {
-                    pastFirstSpace = true
-                  } else {
-                    firstWordChars++
-                  }
+                // Track the LEFTMOST char as the true visual line start.
+                // Using min x-coordinate (not min pmPos) prevents stray end-of-
+                // previous-line chars (e.g. a trailing comma) from being picked
+                // up as lineFrom — they sit at large x values, not small ones.
+                if (cr.left < lineFromX) {
+                  lineFromX = cr.left
+                  lineFrom  = pmPos
                 }
               } else if (pmPos >= cycle!.to) {
-                // Char is after the focused word on this visual line.
-                if (lineTo === null || pmPos + 1 > lineTo) lineTo = pmPos + 1
                 charsAfter++
+                if (lineTo === null || pmPos + 1 > lineTo) lineTo = pmPos + 1
               }
             } catch { /* skip non-editable nodes */ }
           }
@@ -182,12 +173,30 @@ export function ThesaurusPopover({
       const fontSize  = parseFloat(window.getComputedStyle(focusedEl).fontSize) || 18
       const lsEm      = expansion > 0 ? expansion / totalNonWord / fontSize : 0
 
-      // offsetLeft: compensation widget width — only the first word's compression.
-      // The first word is what the browser considers when deciding whether to
-      // reflow the line; anchoring it is sufficient to prevent flows-back.
+      // Count the first word on the visual line using PM document text starting
+      // at lineFrom. This is robust against stray chars from adjacent lines
+      // slipping through the tolerance check.
+      // Stop at the first whitespace; punctuation attached to words (e.g. the
+      // comma in "hantavirus,") is included so the word boundary is correct.
+      let firstWordChars = 0
+      if (lineFrom !== null) {
+        const docSize = editor.state.doc.content.size
+        let p = lineFrom
+        while (p < cycle!.from && p + 1 <= docSize) {
+          try {
+            const ch = editor.state.doc.textBetween(p, p + 1)
+            if (ch === ' ' || ch === '\t' || ch === '\xa0') break
+            firstWordChars++
+          } catch { break }
+          p++
+        }
+      }
+
+      // Widget width is based only on the first word's compression — we only
+      // need to anchor the first word so it cannot flow back to the previous line.
       const offsetLeft = firstWordChars * lsEm * fontSize
 
-      // Use cycle.from as the range start when there are no before-chars so
+      // Use cycle.from as range start when there are no before-chars so
       // RedHighlightExtension's "lf < fw.from" guard stays false in that case.
       const rangeFrom = lineFrom ?? cycle!.from
 
