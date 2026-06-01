@@ -19,7 +19,9 @@ export interface HintState {
   focusedMinWidth: number | null
   // Letter-spacing compression applied to chars on the focused word's visual line
   // (split around the focused word) to absorb the min-width expansion in-place.
-  lineCompressionRange: { from: number; to: number; letterSpacingEm: number } | null
+  // offsetLeft compensates for the space lost by compressing chars before the word,
+  // keeping the word anchored to its original position so it cannot flow back.
+  lineCompressionRange: { from: number; to: number; letterSpacingEm: number; offsetLeft: number } | null
 }
 
 interface RedHighlightOptions {
@@ -191,14 +193,29 @@ function buildDecorations(
 
   // Line compression: tighten letter-spacing on chars either side of the
   // focused word so the min-width expansion fits without wrapping.
+  // A widget at the line start compensates for before-word compression so the
+  // focused word stays in its original position and cannot flow back.
   const { lineCompressionRange } = hintState
   if (lineCompressionRange && focusedPos !== null) {
     const fw = redWords.find(rw => rw.from === focusedPos)
     if (fw) {
-      const { from: lf, to: lt, letterSpacingEm: ls } = lineCompressionRange
+      const { from: lf, to: lt, letterSpacingEm: ls, offsetLeft: ol } = lineCompressionRange
       const style = `letter-spacing: -${ls.toFixed(4)}em`
-      if (lf < fw.from) decorations.push(Decoration.inline(lf, fw.from, { style }))
-      if (fw.to < lt)   decorations.push(Decoration.inline(fw.to, lt,   { style }))
+      if (lf < fw.from) {
+        decorations.push(Decoration.inline(lf, fw.from, { style }))
+        // Widget at the visual line start cancels the leftward drift caused by
+        // compressing chars before the word — space appears before the first word
+        // on the line, not immediately before the focused word.
+        if (ol > 0.5) {
+          const ol_ = ol  // capture for closure
+          decorations.push(Decoration.widget(lf, () => {
+            const s = document.createElement('span')
+            s.style.cssText = `display:inline-block;width:${ol_.toFixed(2)}px;pointer-events:none;user-select:none`
+            return s
+          }))
+        }
+      }
+      if (fw.to < lt) decorations.push(Decoration.inline(fw.to, lt, { style }))
     }
   }
 

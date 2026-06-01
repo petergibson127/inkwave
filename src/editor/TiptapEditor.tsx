@@ -52,7 +52,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   function handleHintChange(
     pos: number | null,
     minWidth?: number | null,
-    lineRange?: { from: number; to: number; letterSpacingEm: number } | null,
+    lineRange?: { from: number; to: number; letterSpacingEm: number; offsetLeft: number } | null,
   ) {
     hintStateRef.current = {
       ...hintStateRef.current,

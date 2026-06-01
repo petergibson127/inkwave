@@ -61,7 +61,7 @@ interface ThesaurusPopoverProps {
   onHintChange: (
     pos: number | null,
     minWidth?: number | null,
-    lineRange?: { from: number; to: number; letterSpacingEm: number } | null,
+    lineRange?: { from: number; to: number; letterSpacingEm: number; offsetLeft: number } | null,
   ) => void
   onCycleChange: (active: boolean) => void
 }
@@ -95,9 +95,11 @@ export function ThesaurusPopover({
     }
   }, [!!cycle]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Line-compression effect: measure which chars share the focused word's visual
-  // line (using Range rects at current zoom), compute the exact letter-spacing
-  // needed to absorb the min-width expansion, dispatch as a hint update.
+  // Line-compression effect: compress ALL non-word chars on the focused word's
+  // visual line (both before and after) to absorb the min-width expansion evenly.
+  // To prevent flows-back, we add margin-left to the focused word equal to the
+  // total space lost by compressing chars before it (offsetLeft), anchoring it
+  // to its original horizontal position regardless of zoom or line position.
   useEffect(() => {
     if (!cycle) return
 
@@ -111,11 +113,14 @@ export function ThesaurusPopover({
       if (!paraEl) return
 
       let lineFrom: number | null = null
-      let lineTo: number | null = null
-      let charCount = 0
-      // Track whether any char visually to the LEFT of the focused word was
-      // found on the same line — used to detect first-word-on-line.
-      let charLeftOfWordFound = false
+      let lineTo:   number | null = null
+      let charsBefore = 0
+      let charsAfter  = 0
+      // firstWordChars: count of before-chars up to the first space on the line.
+      // The widget width is based only on this count — we only need to anchor
+      // the first word so it cannot flow back to the previous line.
+      let firstWordChars  = 0
+      let pastFirstSpace  = false
 
       const walker = document.createTreeWalker(paraEl, NodeFilter.SHOW_TEXT)
       const r = document.createRange()
@@ -131,43 +136,67 @@ export function ThesaurusPopover({
         const nr = r.getBoundingClientRect()
         if (nr.bottom < fRect.top - 2 || nr.top > fRect.bottom + 2) continue
 
+        // Use a strict vertical tolerance: chars must have their midpoint within
+        // 30% of the focused word's line-box height from the line centre.
+        // This avoids accidentally catching chars on adjacent lines at any zoom.
+        const tolerance = fRect.height * 0.3
         for (let i = 0; i < node.length; i++) {
           r.setStart(node, i)
           r.setEnd(node, i + 1)
           const cr = r.getBoundingClientRect()
-          if (Math.abs((cr.top + cr.bottom) / 2 - lineMidY) < fRect.height / 2) {
+          if (Math.abs((cr.top + cr.bottom) / 2 - lineMidY) < tolerance) {
             try {
               const pmPos = editor.view.posAtDOM(node, i)
-              if (lineFrom === null || pmPos < lineFrom) lineFrom = pmPos
-              if (lineTo   === null || pmPos + 1 > lineTo) lineTo = pmPos + 1
-              charCount++
-              // A char is "left of the word" if its right edge is left of the
-              // focused word's left edge — pixel-based, no PM position arithmetic.
-              if (cr.right <= fRect.left) charLeftOfWordFound = true
+              if (pmPos < cycle!.from) {
+                // Char is before the focused word on this visual line.
+                if (lineFrom === null || pmPos < lineFrom) lineFrom = pmPos
+                charsBefore++
+                // Track the first word on the line (up to first whitespace).
+                // Walker order is left-to-right, so the first space encountered
+                // is the boundary between the first and second words.
+                if (!pastFirstSpace) {
+                  const ch = node.data[i] ?? ''
+                  if (ch === ' ' || ch === '\t' || ch === ' ') {
+                    pastFirstSpace = true
+                  } else {
+                    firstWordChars++
+                  }
+                }
+              } else if (pmPos >= cycle!.to) {
+                // Char is after the focused word on this visual line.
+                if (lineTo === null || pmPos + 1 > lineTo) lineTo = pmPos + 1
+                charsAfter++
+              }
             } catch { /* skip non-editable nodes */ }
           }
         }
       }
 
-      if (lineFrom === null || lineTo === null) return
-
-      // Don't compress if the focused word is first on its visual line.
-      // Nothing to compress before it, and tightening chars after causes
-      // the word to flow back onto the previous line.
-      if (!charLeftOfWordFound) {
+      const totalNonWord = charsBefore + charsAfter
+      if (totalNonWord === 0) {
         onHintChange(cycle!.from, cycle!.minWidth, null)
         return
       }
 
       const expansion = Math.max(0, cycle!.minWidth - cycle!.naturalWidth)
-      const charsExcludingWord = Math.max(1, charCount - (cycle!.to - cycle!.from))
-      const fontSize = parseFloat(window.getComputedStyle(focusedEl).fontSize) || 18
-      const lsEm = expansion / charsExcludingWord / fontSize
+      const fontSize  = parseFloat(window.getComputedStyle(focusedEl).fontSize) || 18
+      const lsEm      = expansion > 0 ? expansion / totalNonWord / fontSize : 0
+
+      // offsetLeft: compensation widget width — only the first word's compression.
+      // The first word is what the browser considers when deciding whether to
+      // reflow the line; anchoring it is sufficient to prevent flows-back.
+      const offsetLeft = firstWordChars * lsEm * fontSize
+
+      // Use cycle.from as the range start when there are no before-chars so
+      // RedHighlightExtension's "lf < fw.from" guard stays false in that case.
+      const rangeFrom = lineFrom ?? cycle!.from
 
       onHintChange(
         cycle!.from,
         cycle!.minWidth,
-        lsEm > 0 ? { from: lineFrom, to: lineTo, letterSpacingEm: lsEm } : null,
+        lsEm > 0
+          ? { from: rangeFrom, to: lineTo ?? cycle!.to, letterSpacingEm: lsEm, offsetLeft }
+          : null,
       )
     }
 
@@ -231,7 +260,7 @@ export function ThesaurusPopover({
       domPos = editor.view.posAtDOM(target.firstChild ?? target, 0)
     } catch { return }
 
-    // Capture geometry BEFORE the async getSynonyms call.
+    // Capture geometry BEFORE the async getSynonyms call — layout is still natural here.
     const rect = target.getBoundingClientRect()
     const font = getFont(target)
     const wordWidth = rect.width
