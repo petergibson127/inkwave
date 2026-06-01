@@ -94,7 +94,6 @@ function buildDecorations(
   // ── 1. Collect every out-of-vocab word (skip cursor word) ────────────────
   const redWords: RedWord[] = []
   let paragraphIndex = 0
-  let _cursorParaIdx = 0
 
   pmDoc.descendants((node: PMNode, pos: number) => {
     if (node.type.name !== 'paragraph') return true
@@ -102,10 +101,6 @@ function buildDecorations(
     const pIdx = paragraphIndex
     paragraphIndex++
 
-    // Track which paragraph the cursor is in.
-    const paraStart = pos + 1
-    const paraEnd = pos + node.nodeSize - 1
-    if (cursorPos >= paraStart && cursorPos <= paraEnd) _cursorParaIdx = pIdx
 
     let seqInPara = 0
 
