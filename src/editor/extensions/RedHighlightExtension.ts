@@ -123,7 +123,15 @@ function buildDecorations(
         const from = pos + 1 + offset + match.index
         const to = from + word.length
 
-        if (cursorPos >= from && cursorPos <= to) continue
+        // Skip word if cursor is on it AND it hasn't been committed yet.
+        // "Committed" = followed by whitespace or punctuation (writer has moved on).
+        // If the cursor is on the word but a space/punct follows, keep it red.
+        if (cursorPos >= from && cursorPos <= to) {
+          const nextCharIdx = match.index + word.length
+          const nextChar = nextCharIdx < text.length ? text[nextCharIdx] : null
+          const committed = nextChar !== null && /[\s.,;:!?)\-'"…]/.test(nextChar)
+          if (!committed) continue
+        }
         if (isInVocab(word, pIdx, scasSessionSeed, scasLimitN)) continue
 
         seqInPara++

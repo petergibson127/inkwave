@@ -291,13 +291,20 @@ export function ThesaurusPopover({
       openCycleForElement(target)
     }
 
-    editorEl.addEventListener('mousedown', onMouseDown, { capture: true })
-    editorEl.addEventListener('click',     onEditorClick, { capture: true })
-    editorEl.addEventListener('touchend',  onTouchEnd,    { capture: true })
+    // Prevent cursor placement on touchstart for red words (must be non-passive).
+    function onTouchStart(e: TouchEvent) {
+      if ((e.target as HTMLElement).closest('.scas-red')) e.preventDefault()
+    }
+
+    editorEl.addEventListener('mousedown',  onMouseDown,  { capture: true })
+    editorEl.addEventListener('click',      onEditorClick, { capture: true })
+    editorEl.addEventListener('touchstart', onTouchStart,  { capture: true, passive: false })
+    editorEl.addEventListener('touchend',   onTouchEnd,    { capture: true })
     return () => {
-      editorEl.removeEventListener('mousedown', onMouseDown, { capture: true })
-      editorEl.removeEventListener('click',     onEditorClick, { capture: true })
-      editorEl.removeEventListener('touchend',  onTouchEnd,    { capture: true })
+      editorEl.removeEventListener('mousedown',  onMouseDown,  { capture: true })
+      editorEl.removeEventListener('click',      onEditorClick, { capture: true })
+      editorEl.removeEventListener('touchstart', onTouchStart,  { capture: true })
+      editorEl.removeEventListener('touchend',   onTouchEnd,    { capture: true })
     }
   }, [editor]) // eslint-disable-line react-hooks/exhaustive-deps
 
