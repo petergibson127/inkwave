@@ -21,8 +21,13 @@
     cursor: text;
   }
 
-  /* Right buffer (desktop only) — prevents synonym min-width pushing words
-     onto the next line. Mobile accepts the reflow until touch input lands. */
+  /* Right margin (desktop only) — gives the CycleHintPanel a consistent zone
+     to sit in. Word overflow is handled by letter-spacing compression. */
+  @media (min-width: 768px) {
+    .ProseMirror {
+      padding-right: 4em;
+    }
+  }
 
   .ProseMirror p {
     margin-bottom: 1.25em;
