@@ -397,6 +397,11 @@ export function ThesaurusPopover({
   const currentSynonym = cycle.synonyms[cycle.currentIdx]
   const nextSynonym    = cycle.synonyms[(cycle.currentIdx + 1) % CYCLE_SIZE]
 
+  // Original word (slot 0) is shown in dark red wherever it appears so the
+  // user can always track which was the old word.
+  const colorFor   = (s: string) => s === cycle.synonyms[0] ? '#a02020' : '#c96a00'
+  const opacityFor = (s: string) => s === cycle.synonyms[0] ? 0.92 : 0.72
+
   const rowStyle = {
     lineHeight: `${rowLH}px`,
     whiteSpace: 'nowrap' as const,
@@ -431,15 +436,15 @@ export function ThesaurusPopover({
         }}
       >
         <div
-          style={{ ...rowStyle, fontSize: fontSize * 0.92, color: '#c96a00', opacity: 0.86, cursor: 'pointer' }}
+          style={{ ...rowStyle, fontSize: fontSize * 0.92, color: colorFor(prevSynonym), opacity: opacityFor(prevSynonym), cursor: 'pointer' }}
           onClick={() => acceptSuggestion(prevSynonym, true)}
         >{displayFor(prevSynonym)}</div>
         <div
-          style={{ ...rowStyle, color: '#c96a00', opacity: currentSynonym === DELETE_SENTINEL ? 0.30 : 1, cursor: 'pointer' }}
+          style={{ ...rowStyle, color: colorFor(currentSynonym), opacity: currentSynonym === DELETE_SENTINEL ? 0.70 : 1, cursor: 'pointer' }}
           onClick={() => acceptSuggestion(currentSynonym, true)}
         >{displayFor(currentSynonym)}</div>
         <div
-          style={{ ...rowStyle, fontSize: fontSize * 0.92, color: '#c96a00', opacity: 0.86, cursor: 'pointer' }}
+          style={{ ...rowStyle, fontSize: fontSize * 0.92, color: colorFor(nextSynonym), opacity: opacityFor(nextSynonym), cursor: 'pointer' }}
           onClick={() => acceptSuggestion(nextSynonym, true)}
         >{displayFor(nextSynonym)}</div>
       </div>
