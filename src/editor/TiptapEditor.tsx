@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import type { InkwaveDocument } from '../types/document'
@@ -7,6 +7,7 @@ import { upsertMeta } from '../storage/indexeddb'
 import { RedHighlightExtension, SCAS_HINT_META } from './extensions/RedHighlightExtension'
 import type { HintState } from './extensions/RedHighlightExtension'
 import { ThesaurusPopover } from './suggestions/ThesaurusPopover'
+import { CycleHintPanel } from './suggestions/CycleHintPanel'
 import { prefetchSynonyms } from './suggestions/thesaurus'
 import { LimitSelector } from '../components/LimitSelector'
 import { ComplianceContext, useComplianceProvider } from '../scas/compliance'
@@ -24,9 +25,13 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
 
   const [currentParagraphIndex, setCurrentParagraphIndex] = useState(0)
   const [showHints, setShowHints] = useState(true)
+  const [cycleActive, setCycleActive] = useState(false)
+
+  // Ref to the relative container div — passed to ThesaurusPopover for accurate positioning.
+  const containerRef = useRef<HTMLDivElement>(null)
 
   // Shared mutable ref read synchronously by the decoration plugin.
-  const hintStateRef = useRef<HintState>({ focusedPos: null, showHints: true })
+  const hintStateRef = useRef<HintState>({ focusedPos: null, showHints: true, focusedMinWidth: null })
 
   // Debounced prefetch — fires after typing pauses so popover opens instantly.
   const prefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -43,8 +48,12 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     }
   }, [showHints])
 
-  function handleHintChange(pos: number | null) {
-    hintStateRef.current = { focusedPos: pos, showHints: hintStateRef.current.showHints }
+  function handleHintChange(pos: number | null, minWidth?: number | null) {
+    hintStateRef.current = {
+      ...hintStateRef.current,
+      focusedPos: pos,
+      focusedMinWidth: minWidth ?? null,
+    }
     const ed = editorRef.current
     if (ed && !ed.isDestroyed) {
       ed.view.dispatch(ed.state.tr.setMeta(SCAS_HINT_META, true))
@@ -141,23 +150,28 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
 
   return (
     <ComplianceContext.Provider value={compliance}>
-      <div className="inkwave-editor-surface min-h-screen bg-parchment px-5 py-10">
-        <div className="mx-auto w-full max-w-[480px] md:max-w-[640px] relative">
+      <div className="inkwave-editor-surface min-h-screen bg-parchment px-5 pt-10 pb-24">
+        <div className="mx-auto w-full max-w-[480px] md:max-w-[640px] relative" ref={containerRef}>
           <EditorContent editor={editor} />
           {editor && (
             <ThesaurusPopover
               editor={editor}
               paragraphIndex={currentParagraphIndex}
-              scasLimitN={doc.scasLimitN}
-              scasSessionSeed={doc.scasSessionSeed}
+              containerEl={containerRef as RefObject<HTMLDivElement>}
               onHintChange={handleHintChange}
+              onCycleChange={setCycleActive}
             />
           )}
         </div>
 
+        <CycleHintPanel active={cycleActive} showHints={showHints} />
+
         {/* Footer bar */}
         <div className="fixed bottom-0 left-0 right-0 flex justify-center pb-4 pointer-events-none">
-          <div className="pointer-events-auto flex items-center gap-4">
+          <div
+            className="pointer-events-auto flex items-center gap-4 bg-white px-4 py-2 shadow-sm"
+            style={{ border: '1px solid rgba(210, 140, 60, 0.6)', borderRadius: '15%' }}
+          >
             <LimitSelector
               value={doc.scasLimitN}
               onChange={handleLimitChange}

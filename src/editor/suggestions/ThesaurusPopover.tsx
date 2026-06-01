@@ -1,72 +1,91 @@
-// ThesaurusPopover — Tab/Shift+Tab to navigate flagged words, Space to accept.
+// ThesaurusPopover — Word-cycle synonym interface.
 //
-// Interaction model:
-//   1. Shift+Tab → opens first red word in current paragraph (forward).
-//   2. Tab        → opens the previous flagged word (backward).
-//   3. Click a red word → opens popover for that word.
-//   4. With popover open, type letters to filter suggestions.
-//      → Matched prefix highlighted. Non-matching keystrokes ignored.
-//      → Tiptap suppressed — nothing goes to the editor while popover is open.
-//   5. Space      → accept top filtered match and advance forward.
-//   6. Shift+Tab  → skip and advance forward.
-//   7. Tab        → skip and go backward.
-//   8. Esc        → dismiss without change.
+// Display (3-item vertical slot machine):
+//   prev synonym  — one line above, faded
+//   CURRENT       — overlaid on the focused word (word text is hidden via decoration)
+//   next synonym  — one line below, faded
+//   ◯             — placeholder glyph to the left (future: per-paragraph glyph)
 //
-// Cursor behaviour:
-//   - Saved when a keyboard Tab session begins; pinned there for the whole session.
-//   - Adjusted for length differences when a replacement word is shorter/longer.
-//   - Restored (editor focused) only when the session ends: Esc, outside click,
-//     or no more words within the original cursor boundary.
-//   - Navigation never advances past the original cursor position.
-//   - Click-initiated popovers do not participate in cursor save/restore.
+// Keyboard:
+//   j / k         → cycle down / up through 8 options (wraps)
+//   Space         → accept current option and advance to next red word
+//   Tab           → skip, go to previous red word
+//   Shift+Tab     → skip, go to next red word
+//   Esc           → dismiss without change
+//
+// Cycle slots (8 total):
+//   0  — original word (default, no change on first open)
+//   1  — ⌫ delete the word entirely
+//   2–7 — synonyms from thesaurus
+//
+// Click / touch:
+//   Clicking or tapping a red word opens the cycle without moving the cursor.
 
 import { useEffect, useRef, useState } from 'react'
 import type { Editor } from '@tiptap/react'
 import { getSynonyms } from './thesaurus'
 import { useCompliance } from '../../scas/compliance'
-import { isInVocab } from '../../scas/ranking'
+import { getFont, measureTextWidth } from './textMetrics'
 
-interface PopoverState {
+const CYCLE_SIZE = 8
+// Sentinel stored in the synonyms array to represent "delete this word".
+const DELETE_SENTINEL = '\x00delete'
+const DELETE_DISPLAY  = '⌫'
+
+function displayFor(s: string): string {
+  return s === DELETE_SENTINEL ? DELETE_DISPLAY : s
+}
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+interface CycleState {
   word: string
   from: number
   to: number
-  suggestions: string[]
-  anchor: { top: number; left: number }
+  synonyms: string[]   // exactly CYCLE_SIZE entries
+  currentIdx: number
+  // No pre-computed anchor — positions are read live from the DOM in render
+  // so they stay correct across zoom changes.
 }
 
 interface ThesaurusPopoverProps {
   editor: Editor
   paragraphIndex: number
-  scasLimitN: number | 'infinite'
-  scasSessionSeed: string
-  onHintChange: (pos: number | null) => void
+  containerEl: React.RefObject<HTMLDivElement>
+  onHintChange: (pos: number | null, minWidth?: number | null) => void
+  onCycleChange: (active: boolean) => void
 }
 
 export function ThesaurusPopover({
   editor,
   paragraphIndex,
-  scasLimitN,
-  scasSessionSeed,
+  containerEl,
   onHintChange,
+  onCycleChange,
 }: ThesaurusPopoverProps) {
-  const [popover, setPopover] = useState<PopoverState | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [typeBuffer, setTypeBuffer] = useState('')
-  const containerRef = useRef<HTMLDivElement>(null)
+  const [cycle, setCycle] = useState<CycleState | null>(null)
+  const [, forceUpdate] = useState(0)
   const { recordAccepted, recordIgnored } = useCompliance()
-
-  // Saved when a keyboard Tab session begins. Null = no active session.
   const tabCursorRef = useRef<number | null>(null)
 
-  const filteredSuggestions = popover
-    ? typeBuffer
-      ? popover.suggestions.filter((s) => s.toLowerCase().startsWith(typeBuffer))
-      : popover.suggestions
-    : []
+  // Notify parent when cycle opens / closes so the hint panel can show/hide.
+  useEffect(() => {
+    onCycleChange(!!cycle)
+  }, [!!cycle]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-render on zoom or scroll so live DOM positions stay in sync.
+  useEffect(() => {
+    if (!cycle) return
+    const update = () => forceUpdate(n => n + 1)
+    window.addEventListener('resize', update)
+    window.addEventListener('scroll', update, true)
+    return () => {
+      window.removeEventListener('resize', update)
+      window.removeEventListener('scroll', update, true)
+    }
+  }, [!!cycle]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Cursor management ──────────────────────────────────────────────────────
 
-  /** End the session: focus the editor and restore cursor to pre-session position. */
   function restoreCursor() {
     if (tabCursorRef.current !== null) {
       const pos = tabCursorRef.current
@@ -77,26 +96,18 @@ export function ThesaurusPopover({
     }
   }
 
-  /** Keep cursor pinned at the saved position mid-session (no focus change). */
   function pinCursor() {
     if (tabCursorRef.current !== null && !editor.isDestroyed) {
       editor.commands.setTextSelection(tabCursorRef.current)
     }
   }
 
-  // ── Popover lifecycle ──────────────────────────────────────────────────────
+  // ── Cycle lifecycle ────────────────────────────────────────────────────────
 
-  /**
-   * Close the popover.
-   * @param record   Fire recordIgnored (default true).
-   * @param restore  End the session and restore cursor (default true).
-   *                 Pass false when immediately opening the next word.
-   */
-  function closePopover(record = true, restore = true) {
+  function closeCycle(record = true, restore = true) {
     if (record) recordIgnored()
-    onHintChange(null)
-    setPopover(null)
-    setTypeBuffer('')
+    onHintChange(null, null)
+    setCycle(null)
     if (restore) restoreCursor()
   }
 
@@ -110,75 +121,107 @@ export function ThesaurusPopover({
     try { return editor.view.posAtDOM(el.firstChild ?? el, 0) } catch { return -1 }
   }
 
-  // ── Open popover ───────────────────────────────────────────────────────────
+  // ── Open cycle ─────────────────────────────────────────────────────────────
 
-  function openPopoverForElement(target: HTMLElement) {
-    const word = target.dataset.word ?? target.textContent ?? ''
-    if (!word) return
+  function openCycleForElement(target: HTMLElement) {
+    // displayWord preserves original capitalisation for showing in the cycle.
+    // lookupWord is lowercase for the thesaurus API.
+    const displayWord = target.textContent ?? ''
+    const lookupWord  = target.dataset.word ?? displayWord.toLowerCase()
+    if (!lookupWord) return
 
     let domPos: number
     try {
       domPos = editor.view.posAtDOM(target.firstChild ?? target, 0)
     } catch { return }
 
+    // Capture geometry BEFORE the async getSynonyms call.
     const rect = target.getBoundingClientRect()
-    const editorRect = editor.view.dom.getBoundingClientRect()
+    const containerRect = containerEl.current?.getBoundingClientRect()
+      ?? editor.view.dom.getBoundingClientRect()
+    const font = getFont(target)
+    const wordWidth = rect.width
 
-    const paraIdx = parseInt(target.dataset.para ?? '0', 10)
+    getSynonyms(lookupWord).then((candidates) => {
+      // Slot 0 = original word, slots 1-6 = synonyms, slot 7 = delete sentinel.
+      // Delete is above index 0 (reached by pressing j once from default).
+      const base = [displayWord, ...candidates].slice(0, CYCLE_SIZE - 1)
+      const padded = Array.from(
+        { length: CYCLE_SIZE - 1 },
+        (_, i) => base[i % Math.max(base.length, 1)]
+      )
+      const synonyms = [...padded, DELETE_SENTINEL]
 
-    setTypeBuffer('')
-    setLoading(true)
-    getSynonyms(word).then((candidates) => {
-      setLoading(false)
-      const suggestions = candidates
-        .filter((w) => isInVocab(w, paraIdx, scasSessionSeed, scasLimitN))
-        .slice(0, 4)
-      onHintChange(domPos)
-      setPopover({
-        word,
+      // Exclude the sentinel from width measurement (⌫ is narrow).
+      // Add card horizontal padding on both sides so the reserved space already
+      // includes the breathing room — no positional offset needed at render time.
+      const CARD_PAD_X = 3
+      const measurable = synonyms.filter(s => s !== DELETE_SENTINEL)
+      const maxWidth = Math.max(wordWidth, ...measurable.map(s => measureTextWidth(s, font))) + CARD_PAD_X * 2
+      onHintChange(domPos, maxWidth)
+      setCycle({
+        word: lookupWord,
         from: domPos,
-        to: domPos + word.length,
-        suggestions,
-        anchor: {
-          top: rect.bottom - editorRect.top - 13,
-          left: rect.left - editorRect.left - 6,
-        },
+        to: domPos + displayWord.length,
+        synonyms,
+        currentIdx: 0,
       })
     })
   }
 
   // ── Navigation ─────────────────────────────────────────────────────────────
 
-  /** Next red word after afterPos, optionally bounded by maxPos. */
   function goNext(afterPos: number, maxPos?: number): boolean {
     const next = allRedWords().find(el => {
       const p = posOf(el)
       return p > afterPos && (maxPos === undefined || p < maxPos)
     })
-    if (next) { openPopoverForElement(next); return true }
+    if (next) { openCycleForElement(next); return true }
     return false
   }
 
-  /** Previous red word before beforePos. */
   function goPrev(beforePos: number): boolean {
     const prev = [...allRedWords()].reverse().find(el => posOf(el) < beforePos)
-    if (prev) { openPopoverForElement(prev); return true }
+    if (prev) { openCycleForElement(prev); return true }
     return false
   }
 
-  // ── Click handler ──────────────────────────────────────────────────────────
+  // ── Click / touch handler ──────────────────────────────────────────────────
   useEffect(() => {
     if (!editor) return
+    const editorEl = editor.view.dom
+
+    // Intercept mousedown on red words to prevent the browser moving the cursor.
+    function onMouseDown(e: MouseEvent) {
+      if ((e.target as HTMLElement).closest('.scas-red')) e.preventDefault()
+    }
+
+    // Click opens (or switches) the cycle without cursor movement.
     function onEditorClick(e: MouseEvent) {
       const target = (e.target as HTMLElement).closest('.scas-red') as HTMLElement | null
       if (!target) return
       e.preventDefault()
-      tabCursorRef.current = null // clicks don't participate in cursor save/restore
-      openPopoverForElement(target)
+      tabCursorRef.current = null
+      openCycleForElement(target)
     }
-    const editorEl = editor.view.dom
-    editorEl.addEventListener('click', onEditorClick, { capture: true })
-    return () => editorEl.removeEventListener('click', onEditorClick, { capture: true })
+
+    // Touch: open cycle on tap, suppress the synthetic mouse events that follow.
+    function onTouchEnd(e: TouchEvent) {
+      const target = (e.target as HTMLElement).closest('.scas-red') as HTMLElement | null
+      if (!target) return
+      e.preventDefault()
+      tabCursorRef.current = null
+      openCycleForElement(target)
+    }
+
+    editorEl.addEventListener('mousedown', onMouseDown, { capture: true })
+    editorEl.addEventListener('click',     onEditorClick, { capture: true })
+    editorEl.addEventListener('touchend',  onTouchEnd,    { capture: true })
+    return () => {
+      editorEl.removeEventListener('mousedown', onMouseDown, { capture: true })
+      editorEl.removeEventListener('click',     onEditorClick, { capture: true })
+      editorEl.removeEventListener('touchend',  onTouchEnd,    { capture: true })
+    }
   }, [editor]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Key handler ────────────────────────────────────────────────────────────
@@ -186,71 +229,62 @@ export function ThesaurusPopover({
     if (!editor) return
 
     function onKeyDown(e: KeyboardEvent) {
-      // ── Popover open ───────────────────────────────────────────────────────
-      if (popover) {
+      // ── Cycle open ─────────────────────────────────────────────────────────
+      if (cycle) {
         e.stopPropagation()
 
-        if (e.key === 'Escape') { e.preventDefault(); closePopover(); return }
+        if (e.key === 'Escape') { e.preventDefault(); closeCycle(); return }
+
+        if (e.key === 'j') {
+          e.preventDefault()
+          setCycle(c => c ? { ...c, currentIdx: (c.currentIdx - 1 + CYCLE_SIZE) % CYCLE_SIZE } : c)
+          return
+        }
+        if (e.key === 'k') {
+          e.preventDefault()
+          setCycle(c => c ? { ...c, currentIdx: (c.currentIdx + 1) % CYCLE_SIZE } : c)
+          return
+        }
 
         if (e.key === 'Tab') {
           e.preventDefault()
-          const from = popover.from
-          closePopover(true, false) // don't restore yet — may open another word
+          const from = cycle.from
+          closeCycle(true, false)
           requestAnimationFrame(() => {
-            const found = e.shiftKey
-              ? goNext(from)
-              : goPrev(from)
+            const found = e.shiftKey ? goNext(from) : goPrev(from)
             if (!found) restoreCursor()
           })
           return
         }
 
-        if (e.key === 'Enter') { e.preventDefault(); return }
-
         if (e.key === ' ') {
           e.preventDefault()
-          const match = popover.suggestions.find(s => s.toLowerCase() === typeBuffer)
-          if (match) acceptSuggestion(match, true)
-          else setTypeBuffer('')
+          acceptSuggestion(cycle.synonyms[cycle.currentIdx], true)
           return
         }
 
-        if (e.key === 'Backspace') {
-          e.preventDefault()
-          setTypeBuffer(b => b.slice(0, -1))
-          return
-        }
-
-        if (/^[a-z]$/i.test(e.key)) {
-          e.preventDefault()
-          const next = typeBuffer + e.key.toLowerCase()
-          if (popover.suggestions.some(s => s.toLowerCase().startsWith(next))) setTypeBuffer(next)
-          return
-        }
+        if (e.key === 'Enter') { e.preventDefault(); return }
 
         e.preventDefault()
         return
       }
 
-      // ── No popover ─────────────────────────────────────────────────────────
+      // ── No cycle ───────────────────────────────────────────────────────────
       if (e.key === 'Tab') {
         e.preventDefault()
         if (tabCursorRef.current === null) tabCursorRef.current = editor.state.selection.from
         const cursorPos = editor.state.selection.from
 
         if (e.shiftKey) {
-          // Forward: first red word in current paragraph at or after cursor,
-          // else first red word after cursor in any paragraph.
           const reds = allRedWords()
           const target =
             reds.find(el => parseInt(el.dataset.para ?? '0', 10) === paragraphIndex && posOf(el) >= cursorPos) ??
             reds.find(el => posOf(el) > cursorPos)
-          if (target) openPopoverForElement(target)
+          if (target) openCycleForElement(target)
           else tabCursorRef.current = null
         } else {
-          // Backward: last red word before cursor.
           const prev = [...allRedWords()].reverse().find(el => posOf(el) < cursorPos)
-          if (prev) openPopoverForElement(prev)
+          if (prev) openCycleForElement(prev)
           else tabCursorRef.current = null
         }
       }
@@ -258,41 +292,60 @@ export function ThesaurusPopover({
 
     window.addEventListener('keydown', onKeyDown, { capture: true })
     return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
-  }, [editor, popover, typeBuffer, paragraphIndex]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [editor, cycle, paragraphIndex]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Outside click ──────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!popover) return
+    if (!cycle) return
     function onMouseDown(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        closePopover()
-      }
+      const target = e.target as HTMLElement
+      if (!target.closest?.('.scas-red') && !target.closest?.('.scas-cycle-card')) closeCycle()
     }
     document.addEventListener('mousedown', onMouseDown)
     return () => document.removeEventListener('mousedown', onMouseDown)
-  }, [popover]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cycle]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Accept a suggestion ────────────────────────────────────────────────────
   function acceptSuggestion(replacement: string, advance: boolean) {
-    if (!popover) return
-    const acceptedFrom = popover.from
-    const lengthDiff = replacement.length - (popover.to - popover.from)
+    if (!cycle) return
+    const acceptedFrom = cycle.from
+    const wordLen = cycle.to - cycle.from
 
-    // Keep the saved cursor anchored correctly after a shorter/longer replacement.
-    if (tabCursorRef.current !== null && popover.from < tabCursorRef.current) {
+    if (replacement === DELETE_SENTINEL) {
+      // Delete the word entirely — adjust saved cursor position accordingly.
+      if (tabCursorRef.current !== null && cycle.from < tabCursorRef.current) {
+        tabCursorRef.current -= wordLen
+      }
+      onHintChange(null, null)
+      editor.chain().deleteRange({ from: cycle.from, to: cycle.to }).run()
+      pinCursor()
+      recordAccepted()
+      setCycle(null)
+      if (advance) {
+        requestAnimationFrame(() => {
+          const found = goNext(acceptedFrom, tabCursorRef.current ?? undefined)
+          if (!found) restoreCursor()
+        })
+      } else {
+        restoreCursor()
+      }
+      return
+    }
+
+    const lengthDiff = replacement.length - wordLen
+    if (tabCursorRef.current !== null && cycle.from < tabCursorRef.current) {
       tabCursorRef.current += lengthDiff
     }
 
-    onHintChange(null)
+    onHintChange(null, null)
     editor.chain()
-      .deleteRange({ from: popover.from, to: popover.to })
-      .insertContentAt(popover.from, replacement)
+      .deleteRange({ from: cycle.from, to: cycle.to })
+      .insertContentAt(cycle.from, replacement)
       .run()
-    pinCursor() // snap cursor back before React re-renders
+    pinCursor()
 
     recordAccepted()
-    setPopover(null)
-    setTypeBuffer('')
+    setCycle(null)
 
     if (advance) {
       requestAnimationFrame(() => {
@@ -305,43 +358,88 @@ export function ThesaurusPopover({
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
-  if (!popover && !loading) return null
+  if (!cycle) return null
+
+  // Measure live from the DOM every render — correct at any zoom level.
+  // The .scas-focused span already has min-width applied by the decoration,
+  // so rect.width is exactly the reserved space to centre into.
+  const focusedEl = editor.view.dom.querySelector('.scas-focused') as HTMLElement | null
+  const cRect     = containerEl.current?.getBoundingClientRect()
+  if (!focusedEl || !cRect) return null
+
+  const rect       = focusedEl.getBoundingClientRect()
+  const left       = rect.left - cRect.left
+  const width      = rect.width
+  const cs         = window.getComputedStyle(focusedEl)
+  const fontFamily = cs.fontFamily
+  const fontSize   = parseFloat(cs.fontSize) || 18
+
+  // Use a Range over the (transparent) text to get the exact glyph bounding
+  // box — this is font-metric-accurate at any zoom level, no magic offsets.
+  let textMid: number
+  const textNode = focusedEl.firstChild
+  if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+    const range = document.createRange()
+    range.selectNodeContents(textNode)
+    const tr = range.getBoundingClientRect()
+    textMid = tr.top - cRect.top + tr.height / 2
+  } else {
+    // Fallback: centre of the full line box
+    textMid = rect.top - cRect.top + rect.height / 2
+  }
+
+  // Row height: a little taller than the glyph box so adjacent rows breathe.
+  const rowLH    = Math.round(fontSize * 1.15)
+  const cardPadY = 2  // must match padding-top on the card container below
+  const contTop  = textMid - rowLH * 1.5 - cardPadY
+
+  const prevSynonym    = cycle.synonyms[(cycle.currentIdx - 1 + CYCLE_SIZE) % CYCLE_SIZE]
+  const currentSynonym = cycle.synonyms[cycle.currentIdx]
+  const nextSynonym    = cycle.synonyms[(cycle.currentIdx + 1) % CYCLE_SIZE]
+
+  const rowStyle = {
+    lineHeight: `${rowLH}px`,
+    whiteSpace: 'nowrap' as const,
+    textAlign: 'center' as const,
+  }
 
   return (
-    <div
-      ref={containerRef}
-      className="absolute z-50 rounded border border-stone-200 bg-white/75 backdrop-blur-sm shadow-sm py-1 px-0 text-sm font-sans w-fit"
-      style={popover ? { top: popover.anchor.top, left: popover.anchor.left } : { display: 'none' }}
-    >
-      {loading && (
-        <div className="text-stone-400 text-xs px-1 py-0.5">Looking up&hellip;</div>
-      )}
-      {popover && (
-        <>
-          {popover.suggestions.length === 0 ? (
-            <div className="px-1.5 py-1 text-stone-400 text-xs italic">No suggestions found.</div>
-          ) : filteredSuggestions.length === 0 ? (
-            <div className="px-1.5 py-1 text-stone-400 text-xs italic">
-              No match for &ldquo;{typeBuffer}&rdquo;.
-            </div>
-          ) : (
-            filteredSuggestions.map((s) => (
-              <button
-                key={s}
-                className="block w-full text-left px-1.5 py-0.5 rounded hover:bg-stone-100 text-stone-700"
-                onClick={() => acceptSuggestion(s, true)}
-              >
-                {typeBuffer ? (
-                  <>
-                    <span className="text-blue-500 font-medium">{s.slice(0, typeBuffer.length)}</span>
-                    <span>{s.slice(typeBuffer.length)}</span>
-                  </>
-                ) : s}
-              </button>
-            ))
-          )}
-        </>
-      )}
-    </div>
+    <>
+      {/* Glyph placeholder — vertically aligned with the middle row */}
+      <div
+        className="absolute z-50 pointer-events-none select-none text-stone-300"
+        style={{ position: 'absolute', top: contTop + rowLH, left: left - 18,
+                 lineHeight: `${rowLH}px`, fontFamily, fontSize }}
+      >
+        ◯
+      </div>
+
+      {/* Three-row container: prev / current / next, centred in the reserved space */}
+      <div
+        className="absolute z-50 select-none scas-cycle-card"
+        style={{
+          top: contTop,
+          left,
+          width: Math.ceil(width),
+          fontFamily,
+          fontSize,
+          background: 'white',
+          border: '1px solid rgba(210, 140, 60, 0.6)',
+          borderRadius: '15%',
+          padding: `${cardPadY}px 3px`,
+          boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+        }}
+      >
+        <div
+          style={{ ...rowStyle, color: '#7c3300', opacity: 0.45, cursor: 'pointer' }}
+          onClick={() => acceptSuggestion(prevSynonym, true)}
+        >{displayFor(prevSynonym)}</div>
+        <div style={{ ...rowStyle, color: '#c96a00', opacity: currentSynonym === DELETE_SENTINEL ? 0.30 : 1, pointerEvents: 'none' }}>{displayFor(currentSynonym)}</div>
+        <div
+          style={{ ...rowStyle, color: '#7c3300', opacity: 0.45, cursor: 'pointer' }}
+          onClick={() => acceptSuggestion(nextSynonym, true)}
+        >{displayFor(nextSynonym)}</div>
+      </div>
+    </>
   )
 }

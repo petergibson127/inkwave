@@ -14,8 +14,9 @@ export const SCAS_HINT_META = 'scasHintUpdate'
 const WORD_RE = /[a-zA-Z]+/g
 
 export interface HintState {
-  focusedPos: number | null  // ProseMirror position of the currently open word
+  focusedPos: number | null     // ProseMirror position of the currently open word
   showHints: boolean
+  focusedMinWidth: number | null  // px width to reserve on the focused word span
 }
 
 interface RedHighlightOptions {
@@ -31,7 +32,7 @@ export const RedHighlightExtension = Extension.create<RedHighlightOptions>({
       getDoc: () => {
         throw new Error('RedHighlightExtension: getDoc option is required')
       },
-      getHintState: () => ({ focusedPos: null, showHints: true }),
+      getHintState: () => ({ focusedPos: null, showHints: true, focusedMinWidth: null }),
     }
   },
 
@@ -171,6 +172,13 @@ function buildDecorations(
       'data-scas-n': String(seqInPara),
     }
     if (hint) attrs['data-hint'] = hint
+
+    if (isFocused) {
+      // Make the span inline-block so min-width works, and hide its text so
+      // the ThesaurusPopover overlay can render the current synonym on top.
+      const mw = hintState.focusedMinWidth
+      attrs['style'] = `display:inline-block;color:transparent${mw ? `;min-width:${Math.ceil(mw)}px` : ''}`
+    }
 
     decorations.push(Decoration.inline(from, to, attrs))
   }
