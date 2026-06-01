@@ -21,7 +21,7 @@
 // Click / touch:
 //   Clicking or tapping a red word opens the cycle without moving the cursor.
 
-import { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import type { Editor } from '@tiptap/react'
 import { getSynonyms } from './thesaurus'
 import { useCompliance } from '../../scas/compliance'
@@ -32,8 +32,15 @@ const CYCLE_SIZE = 8
 const DELETE_SENTINEL = '\x00delete'
 const DELETE_DISPLAY  = '⌫'
 
-function displayFor(s: string): string {
-  return s === DELETE_SENTINEL ? DELETE_DISPLAY : s
+function displayFor(s: string, mobileScale = 1): React.ReactNode {
+  if (s !== DELETE_SENTINEL) return s
+  // Always render ⌫ in a system font — IM Fell DW Pica doesn't have this glyph.
+  // On desktop: scale down slightly (system-ui has a larger x-height than the serifed font).
+  // On mobile: scale up for tap target.
+  const fontSize = mobileScale > 1 ? `${mobileScale}em` : '0.82em'
+  const style: React.CSSProperties = { fontFamily: 'system-ui, sans-serif', fontSize }
+  if (mobileScale > 1) style.lineHeight = '1'
+  return <span style={style}>{DELETE_DISPLAY}</span>
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -106,6 +113,9 @@ export function ThesaurusPopover({
       let lineFrom: number | null = null
       let lineTo: number | null = null
       let charCount = 0
+      // Track whether any char visually to the LEFT of the focused word was
+      // found on the same line — used to detect first-word-on-line.
+      let charLeftOfWordFound = false
 
       const walker = document.createTreeWalker(paraEl, NodeFilter.SHOW_TEXT)
       const r = document.createRange()
@@ -131,6 +141,9 @@ export function ThesaurusPopover({
               if (lineFrom === null || pmPos < lineFrom) lineFrom = pmPos
               if (lineTo   === null || pmPos + 1 > lineTo) lineTo = pmPos + 1
               charCount++
+              // A char is "left of the word" if its right edge is left of the
+              // focused word's left edge — pixel-based, no PM position arithmetic.
+              if (cr.right <= fRect.left) charLeftOfWordFound = true
             } catch { /* skip non-editable nodes */ }
           }
         }
@@ -138,10 +151,18 @@ export function ThesaurusPopover({
 
       if (lineFrom === null || lineTo === null) return
 
+      // Don't compress if the focused word is first on its visual line.
+      // Nothing to compress before it, and tightening chars after causes
+      // the word to flow back onto the previous line.
+      if (!charLeftOfWordFound) {
+        onHintChange(cycle!.from, cycle!.minWidth, null)
+        return
+      }
+
       const expansion = Math.max(0, cycle!.minWidth - cycle!.naturalWidth)
       const charsExcludingWord = Math.max(1, charCount - (cycle!.to - cycle!.from))
       const fontSize = parseFloat(window.getComputedStyle(focusedEl).fontSize) || 18
-      const lsEm = expansion > 0 ? expansion / charsExcludingWord / fontSize : 0
+      const lsEm = expansion / charsExcludingWord / fontSize
 
       onHintChange(
         cycle!.from,
@@ -261,34 +282,14 @@ export function ThesaurusPopover({
     return false
   }
 
-  // ── Click / touch handler ──────────────────────────────────────────────────
+  // ── Pointer handler (mouse + touch unified) ────────────────────────────────
   useEffect(() => {
     if (!editor) return
     const editorEl = editor.view.dom
 
-    // Intercept mousedown on red words to prevent the browser moving the cursor.
-    function onMouseDown(e: MouseEvent) {
-      if ((e.target as HTMLElement).closest('.scas-red')) e.preventDefault()
-    }
-
-    // Click opens (or switches) the cycle without cursor movement.
-    function onEditorClick(e: MouseEvent) {
-      const target = (e.target as HTMLElement).closest('.scas-red') as HTMLElement | null
-      if (!target) return
-      e.preventDefault()
-      tabCursorRef.current = null
-      openCycleForElement(target)
-    }
-
-    // Touch: intercept at document level (capture) so we beat ProseMirror's own
-    // touch handling. touchstart preventDefault blocks cursor placement + scroll
-    // only when the tap lands on a red word.
-    function onTouchStart(e: TouchEvent) {
-      const target = (e.target as HTMLElement).closest('.scas-red')
-      if (target && editorEl.contains(target)) e.preventDefault()
-    }
-
-    function onTouchEnd(e: TouchEvent) {
+    // pointerdown fires for both mouse clicks and finger taps.
+    // Capturing at document level ensures we beat ProseMirror's own handlers.
+    function onPointerDown(e: PointerEvent) {
       const target = (e.target as HTMLElement).closest('.scas-red') as HTMLElement | null
       if (!target || !editorEl.contains(target)) return
       e.preventDefault()
@@ -296,15 +297,9 @@ export function ThesaurusPopover({
       openCycleForElement(target)
     }
 
-    editorEl.addEventListener('mousedown', onMouseDown,  { capture: true })
-    editorEl.addEventListener('click',     onEditorClick, { capture: true })
-    document.addEventListener('touchstart', onTouchStart, { capture: true, passive: false })
-    document.addEventListener('touchend',   onTouchEnd,   { capture: true })
+    document.addEventListener('pointerdown', onPointerDown, { capture: true })
     return () => {
-      editorEl.removeEventListener('mousedown', onMouseDown,  { capture: true })
-      editorEl.removeEventListener('click',     onEditorClick, { capture: true })
-      document.removeEventListener('touchstart', onTouchStart, { capture: true })
-      document.removeEventListener('touchend',   onTouchEnd,   { capture: true })
+      document.removeEventListener('pointerdown', onPointerDown, { capture: true })
     }
   }, [editor]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -491,7 +486,8 @@ export function ThesaurusPopover({
   // Row height: a little taller than the glyph box so adjacent rows breathe.
   const rowLH    = Math.round(fontSize * 1.15)
   const cardPadY = 2  // must match padding-top on the card container below
-  const contTop  = textMid - rowLH * 1.5 - cardPadY
+  const outerLH  = Math.round(rowLH * 0.78)
+  const contTop  = textMid - outerLH - rowLH / 2 - cardPadY
 
   const prevSynonym    = cycle.synonyms[(cycle.currentIdx - 1 + CYCLE_SIZE) % CYCLE_SIZE]
   const currentSynonym = cycle.synonyms[cycle.currentIdx]
@@ -502,10 +498,11 @@ export function ThesaurusPopover({
   const colorFor   = (s: string) => s === cycle.synonyms[0] ? '#a02020' : '#c96a00'
   const opacityFor = (s: string) => s === cycle.synonyms[0] ? 0.92 : 0.72
 
-  const rowStyle = {
-    lineHeight: `${rowLH}px`,
-    whiteSpace: 'nowrap' as const,
-    textAlign: 'center' as const,
+  // Shared flex style keeps content vertically centred within the fixed row
+  // height, so oversized glyphs (⌫ at 1.4em) can't push subsequent rows down.
+  const rowBase: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    whiteSpace: 'nowrap', overflow: 'hidden',
   }
 
   return (
@@ -513,13 +510,13 @@ export function ThesaurusPopover({
       {/* Glyph placeholder — vertically aligned with the middle row */}
       <div
         className="absolute z-50 pointer-events-none select-none text-stone-300"
-        style={{ position: 'absolute', top: contTop + rowLH, left: left - 18,
+        style={{ position: 'absolute', top: contTop + outerLH, left: left - 18,
                  lineHeight: `${rowLH}px`, fontFamily, fontSize }}
       >
         ◯
       </div>
 
-      {/* Three-row container: prev / current / next, centred in the reserved space */}
+      {/* Three-row container: prev / current / next */}
       <div
         className="absolute z-50 select-none scas-cycle-card"
         style={{
@@ -530,23 +527,23 @@ export function ThesaurusPopover({
           fontSize,
           background: 'white',
           border: '1px solid rgba(180, 90, 10, 0.85)',
-          borderRadius: '15%',
+          borderRadius: '10px',
           padding: `${cardPadY}px 3px`,
           boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
         }}
       >
         <div
-          style={{ ...rowStyle, fontSize: fontSize * 0.92, color: colorFor(prevSynonym), opacity: opacityFor(prevSynonym), cursor: 'pointer' }}
+          style={{ ...rowBase, height: outerLH, fontSize: fontSize * 0.92, color: colorFor(prevSynonym), opacity: opacityFor(prevSynonym), cursor: 'pointer' }}
           onClick={() => acceptSuggestion(prevSynonym, true)}
-        >{displayFor(prevSynonym)}</div>
+        >{displayFor(prevSynonym, window.innerWidth < 768 ? 1.4 : 1)}</div>
         <div
-          style={{ ...rowStyle, color: colorFor(currentSynonym), opacity: currentSynonym === DELETE_SENTINEL ? 0.70 : 1, cursor: 'pointer' }}
+          style={{ ...rowBase, height: rowLH, color: colorFor(currentSynonym), opacity: currentSynonym === DELETE_SENTINEL ? 0.70 : 1, cursor: 'pointer' }}
           onClick={() => acceptSuggestion(currentSynonym, true)}
-        >{displayFor(currentSynonym)}</div>
+        >{displayFor(currentSynonym, window.innerWidth < 768 ? 1.4 : 1)}</div>
         <div
-          style={{ ...rowStyle, fontSize: fontSize * 0.92, color: colorFor(nextSynonym), opacity: opacityFor(nextSynonym), cursor: 'pointer' }}
+          style={{ ...rowBase, height: outerLH, fontSize: fontSize * 0.92, color: colorFor(nextSynonym), opacity: opacityFor(nextSynonym), cursor: 'pointer' }}
           onClick={() => acceptSuggestion(nextSynonym, true)}
-        >{displayFor(nextSynonym)}</div>
+        >{displayFor(nextSynonym, window.innerWidth < 768 ? 1.4 : 1)}</div>
       </div>
     </>
   )

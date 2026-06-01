@@ -34,7 +34,7 @@ export function CycleHintPanel({ active, showHints, containerRight }: CycleHintP
         className="hidden min-[720px]:grid fixed z-40
                    pointer-events-none select-none
                    bg-white pl-2 pr-4 py-3 shadow-sm"
-        style={{ border: '1px solid rgba(180, 90, 10, 0.85)', borderRadius: '15%', gridTemplateColumns: 'auto auto', gap: '0.625rem 0.5rem', top: '20vh', left: containerRight - 82 }}
+        style={{ border: '1px solid rgba(180, 90, 10, 0.85)', borderRadius: '10px', gridTemplateColumns: 'auto auto', gap: '0.625rem 0.5rem', top: '20vh', left: containerRight - 82 }}
       >
         {HINTS.map(({ keys, label }) => (
           <>

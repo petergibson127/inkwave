@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
-import { useEditor, EditorContent } from '@tiptap/react'
+import { useEditor, EditorContent, Extension } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import type { InkwaveDocument } from '../types/document'
 import { scheduleSave } from '../storage/opfs'
@@ -69,6 +69,17 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   const editor = useEditor({
     extensions: [
       StarterKit,
+      // Single Enter = hard break (stay in paragraph).
+      // Double Enter (Shift+Enter) = new paragraph.
+      Extension.create({
+        name: 'enterBehavior',
+        addKeyboardShortcuts() {
+          return {
+            'Enter':       () => this.editor.commands.setHardBreak(),
+            'Shift-Enter': () => this.editor.chain().splitBlock().run(),
+          }
+        },
+      }),
       RedHighlightExtension.configure({
         getDoc: () => docRef.current,
         getHintState: () => hintStateRef.current,
@@ -168,18 +179,34 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
 
   return (
     <ComplianceContext.Provider value={compliance}>
-      <div className="inkwave-editor-surface min-h-screen bg-parchment pl-2 pr-5 pt-10 pb-24">
-        <div className="mx-auto w-full max-w-[560px] md:max-w-[720px] relative" ref={containerRef}>
-          <EditorContent editor={editor} />
-          {editor && (
-            <ThesaurusPopover
-              editor={editor}
-              paragraphIndex={currentParagraphIndex}
-              containerEl={containerRef as RefObject<HTMLDivElement>}
-              onHintChange={handleHintChange}
-              onCycleChange={setCycleActive}
-            />
-          )}
+      <div className="inkwave-editor-surface min-h-screen bg-white pt-16 pb-32 px-4">
+        {/* Scroll container — slightly wider than text column */}
+        <div className="mx-auto w-full max-w-[600px] md:max-w-[780px]"
+          style={{
+            filter: 'drop-shadow(0 8px 32px rgba(80,50,10,0.22)) drop-shadow(0 2px 6px rgba(80,50,10,0.18))',
+          }}
+        >
+          {/* Top scroll head */}
+          <ScrollHead position="top" />
+
+          {/* Parchment paper body */}
+          <div className="scroll-paper relative pl-2 pr-5 pt-10 pb-24">
+            <div className="mx-auto w-full max-w-[560px] md:max-w-[720px] relative" ref={containerRef}>
+              <EditorContent editor={editor} />
+              {editor && (
+                <ThesaurusPopover
+                  editor={editor}
+                  paragraphIndex={currentParagraphIndex}
+                  containerEl={containerRef as RefObject<HTMLDivElement>}
+                  onHintChange={handleHintChange}
+                  onCycleChange={setCycleActive}
+                />
+              )}
+            </div>
+          </div>
+
+          {/* Bottom scroll head */}
+          <ScrollHead position="bottom" />
         </div>
 
         <CycleHintPanel active={cycleActive} showHints={showHints} containerRight={containerRight} />
@@ -207,6 +234,57 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
         </div>
       </div>
     </ComplianceContext.Provider>
+  )
+}
+
+function ScrollHead({ position }: { position: 'top' | 'bottom' }) {
+  const isTop = position === 'top'
+  const outerRadius = isTop ? '6px 6px 0 0' : '0 0 6px 6px'
+  const capRadiusL  = isTop ? '6px 0 0 0'   : '0 0 0 6px'
+  const capRadiusR  = isTop ? '0 6px 0 0'   : '0 0 6px 0'
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        height: '24px',
+        width: '100%',
+        background: 'linear-gradient(to bottom, #c8a45a 0%, #e8c97a 28%, #f5dea0 48%, #d4a84e 70%, #8b6520 100%)',
+        borderRadius: outerRadius,
+        position: 'relative',
+        overflow: 'hidden',
+      }}
+    >
+      {/* Highlight streak — simulates cylinder curvature */}
+      <div style={{
+        position: 'absolute',
+        top: '2px', left: '8%', right: '8%', height: '5px',
+        background: 'linear-gradient(to right, transparent, rgba(255,248,210,0.7) 30%, rgba(255,255,240,0.85) 50%, rgba(255,248,210,0.7) 70%, transparent)',
+        borderRadius: '3px',
+      }} />
+      {/* Left end cap darker rim */}
+      <div style={{
+        position: 'absolute',
+        top: 0, left: 0, bottom: 0, width: '18px',
+        background: 'linear-gradient(to right, rgba(80,45,5,0.45), transparent)',
+        borderRadius: capRadiusL,
+      }} />
+      {/* Right end cap darker rim */}
+      <div style={{
+        position: 'absolute',
+        top: 0, right: 0, bottom: 0, width: '18px',
+        background: 'linear-gradient(to left, rgba(80,45,5,0.45), transparent)',
+        borderRadius: capRadiusR,
+      }} />
+      {/* Shadow edge — bottom for top head, top for bottom head */}
+      <div style={{
+        position: 'absolute',
+        ...(isTop ? { bottom: 0 } : { top: 0 }),
+        left: 0, right: 0, height: '4px',
+        background: isTop
+          ? 'linear-gradient(to top, rgba(60,35,5,0.35), transparent)'
+          : 'linear-gradient(to bottom, rgba(60,35,5,0.35), transparent)',
+      }} />
+    </div>
   )
 }
 
