@@ -6,6 +6,7 @@ export interface CycleState {
   word: string
   from: number; to: number
   synonyms: string[]; currentIdx: number
+  reelPos: number               // continuous (un-wrapped) position for the slide animation
   minWidth: number; naturalWidth: number
   naturalTop: number; naturalBottom: number; naturalLineRight: number
 }
