@@ -545,11 +545,13 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
 
   return (
     <>
-      {/* Original-word marker — a small dot tracking the original's row, in motion only */}
+      {/* Original-word marker — a small uneven ink blot tracking the original's row,
+          shown in motion only and tucked right up against the word. */}
       <div aria-hidden="true" className="absolute z-50 scas-origin-dot"
-        style={{ position: 'absolute', top: origY, left: left - 14,
-                 width: 6, height: 6, borderRadius: '50%', background: '#5c2d8a',
-                 transform: 'translateY(-50%)', opacity: origOpacity,
+        style={{ position: 'absolute', top: origY, left: left - 5,
+                 width: 5, height: 5.5, background: '#5c2d8a',
+                 borderRadius: '70% 30% 55% 45% / 55% 65% 35% 45%',
+                 transform: 'translateY(-50%) rotate(-18deg)', opacity: origOpacity,
                  transition: 'opacity 140ms ease', pointerEvents: 'none' }} />
 
       {/* Sliding reel card — fully transparent: no border/shadow/background, so the
