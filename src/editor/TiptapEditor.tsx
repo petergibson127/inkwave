@@ -29,9 +29,12 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   const [showHints, setShowHints] = useState(true)
   const [cycleActive, setCycleActive] = useState(false)
   const [containerRight, setContainerRight] = useState(0)
+  const [paperRight, setPaperRight] = useState(0)
 
   // Ref to the relative container div — passed to ThesaurusPopover for accurate positioning.
   const containerRef = useRef<HTMLDivElement>(null)
+  // Ref to the parchment/scroll column — its right edge anchors the options panel.
+  const paperRef = useRef<HTMLDivElement>(null)
 
   // Shared mutable ref read synchronously by the decoration plugin.
   const hintStateRef = useRef<HintState>({ focusedPos: null, showHints: true, focusedMinWidth: null, lineCompressionRange: null })
@@ -142,6 +145,8 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     function update() {
       if (containerRef.current)
         setContainerRight(containerRef.current.getBoundingClientRect().right)
+      if (paperRef.current)
+        setPaperRight(paperRef.current.getBoundingClientRect().right)
     }
     update()
     window.addEventListener('resize', update)
@@ -185,7 +190,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     <ComplianceContext.Provider value={compliance}>
       <div className="inkwave-editor-surface min-h-screen bg-white pt-16 pb-32 px-4">
         {/* Scroll container — slightly wider than text column */}
-        <div className="mx-auto w-full max-w-[600px] md:max-w-[780px]"
+        <div ref={paperRef} className="mx-auto w-full max-w-[600px] md:max-w-[780px]"
           style={{
             // box-shadow (not filter: drop-shadow) so the absolutely-positioned
             // cycle card rendered inside doesn't feed its pixels into the shadow —
@@ -239,7 +244,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
               hints
             </label>
             <span className="w-px h-5 bg-stone-200" aria-hidden="true" />
-            <OptionsMenu />
+            <OptionsMenu paperRight={paperRight} />
           </div>
         </div>
       </div>

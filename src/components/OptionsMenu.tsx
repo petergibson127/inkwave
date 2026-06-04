@@ -3,7 +3,7 @@
 // Opens a small menu of app actions. "About" navigates to its own page; the rest
 // open empty centred modals over the editor (placeholders for now).
 
-import { useEffect, useRef, useState } from 'react'
+import { type CSSProperties, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 type ModalKey = 'login' | 'save' | 'recent' | 'open' | 'settings'
@@ -18,11 +18,12 @@ const MODAL_TITLES: Record<ModalKey, string> = {
 
 const INK = '#5c2d8a'
 
-export function OptionsMenu() {
+export function OptionsMenu({ paperRight }: { paperRight: number }) {
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
   const [modal, setModal] = useState<ModalKey | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
 
   // Close the menu on outside click or Escape.
   useEffect(() => {
@@ -45,10 +46,21 @@ export function OptionsMenu() {
     { label: 'Settings',    run: () => setModal('settings') },
   ]
 
+  // Position the panel near the right edge of the paper (just inside it), vertically
+  // just above the toolbar — rather than right-aligned to the centred button.
+  const menuStyle: CSSProperties = { border: `1px solid ${INK}66`, borderRadius: '10px' }
+  if (menuOpen) {
+    const br = btnRef.current?.getBoundingClientRect()
+    menuStyle.position = 'fixed'
+    menuStyle.bottom = br ? Math.round(window.innerHeight - br.top + 8) : 60
+    menuStyle.right  = Math.max(8, Math.round(window.innerWidth - paperRight + 4))
+  }
+
   return (
     <div ref={rootRef} className="relative">
       {/* Trigger (kebab) */}
       <button
+        ref={btnRef}
         type="button"
         aria-label="Options"
         aria-haspopup="menu"
@@ -67,8 +79,8 @@ export function OptionsMenu() {
       {menuOpen && (
         <div
           role="menu"
-          className="absolute right-0 bottom-full mb-2 z-[60] w-44 py-1 bg-white shadow-md text-sm text-stone-600 font-serif"
-          style={{ border: `1px solid ${INK}66`, borderRadius: '10px' }}
+          className="z-[60] w-44 py-1 bg-white shadow-md text-sm text-stone-600 font-serif"
+          style={menuStyle}
         >
           {items.map(it => (
             <button
