@@ -7,16 +7,14 @@ import type { CycleState, OnHintChange } from './popoverConstants'
 import { posOf, measureNaturalLineRight, computeLineCompressionRange } from './popoverGeometry'
 import { buildSynonyms } from './popoverFallbacks'
 
-// On touch devices the in-place expand+compress is unreliable (iOS text rendering
-// desyncs the canvas measurements), so the cycle uses an opaque overlay card instead.
-// ?inplace=1 forces the in-place mode on any device — for debugging the compression
-// path on a real phone while the robust overlay stays the default.
+// The in-place expand+compress popover is the experience on every device. The opaque
+// overlay card is a dormant fallback, opt-in via ?overlay=1 only — used to compare or
+// in case the in-place spacing can't be made reliable on iOS.
 function wantsOverlay(): boolean {
   if (typeof window === 'undefined') return false
   try {
-    if (new URLSearchParams(window.location.search).get('inplace') === '1') return false
-  } catch { /* ignore */ }
-  return (navigator.maxTouchPoints ?? 0) > 0 || window.matchMedia?.('(pointer: coarse)')?.matches === true
+    return new URLSearchParams(window.location.search).get('overlay') === '1'
+  } catch { return false }
 }
 
 export function usePopoverLayout(
