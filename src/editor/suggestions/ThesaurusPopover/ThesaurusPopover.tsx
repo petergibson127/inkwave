@@ -512,12 +512,12 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
         style={{ position: 'absolute', top: textMid - rowH / 2, left: left - 18,
                  height: rowH, lineHeight: `${rowH}px`, fontFamily, fontSize: fsz }}>◯</div>
 
-      {/* Sliding reel card */}
+      {/* Sliding reel card — fully transparent: no border/shadow/background, so the
+          word floats directly on the parchment (lines above/below may show through). */}
       <div className="absolute z-50 select-none scas-cycle-card"
         style={{ top: cardTop, left, width, height: cardH, boxSizing: 'border-box',
                  fontFamily, fontSize: fsz, overflow: 'hidden',
-                 background: 'white', border: '1px solid rgba(92, 45, 138, 0.75)', borderRadius: '10px',
-                 boxShadow: '0 1px 4px rgba(0,0,0,0.06)', WebkitTapHighlightColor: 'transparent' }}>
+                 background: 'transparent', WebkitTapHighlightColor: 'transparent' }}>
         {rows}
       </div>
     </>
