@@ -189,7 +189,12 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     docRef.current = updated
     onDocChange(updated)
     scheduleSave(updated)
-    editor?.commands.focus()
+    // Re-focusing keeps the cursor in the editor on desktop; on a phone it would re-open
+    // the keyboard and hide the toolbar (so the toolbar appears to "run away" when you
+    // tap its controls), so skip the re-focus on touch-only devices.
+    if (!window.matchMedia?.('(pointer: coarse) and (hover: none)')?.matches) {
+      editor?.commands.focus()
+    }
   }
 
   // Hide the toolbar only on touch-only devices (phones/tablets — they have no hover)
