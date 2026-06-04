@@ -7,6 +7,18 @@ import type { CycleState, OnHintChange } from './popoverConstants'
 import { posOf, measureNaturalLineRight, computeLineCompressionRange } from './popoverGeometry'
 import { buildSynonyms } from './popoverFallbacks'
 
+// On touch devices the in-place expand+compress is unreliable (iOS text rendering
+// desyncs the canvas measurements), so the cycle uses an opaque overlay card instead.
+// ?inplace=1 forces the in-place mode on any device — for debugging the compression
+// path on a real phone while the robust overlay stays the default.
+function wantsOverlay(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    if (new URLSearchParams(window.location.search).get('inplace') === '1') return false
+  } catch { /* ignore */ }
+  return (navigator.maxTouchPoints ?? 0) > 0 || window.matchMedia?.('(pointer: coarse)')?.matches === true
+}
+
 export function usePopoverLayout(
   editor: Editor,
   onHintChange: OnHintChange,
@@ -27,7 +39,7 @@ export function usePopoverLayout(
   // The initial application is done synchronously inside openCycleForElement
   // (single PM dispatch). This is a safety net for reflow events.
   useEffect(() => {
-    if (!cycle) return
+    if (!cycle || cycle.overlay) return   // overlay mode never compresses
     function recompress() {
       const fe = editor.view.dom.querySelector('.scas-focused') as HTMLElement | null
       const pe = fe?.closest('p')
@@ -46,6 +58,7 @@ export function usePopoverLayout(
     const displayWord = target.textContent ?? ''
     const lookupWord  = target.dataset.word ?? displayWord.toLowerCase()
     if (!lookupWord) return
+    const overlay = wantsOverlay()
 
     let domPos: number
     try { domPos = editor.view.posAtDOM(target.firstChild ?? target, 0) } catch { return }
@@ -70,7 +83,7 @@ export function usePopoverLayout(
     setCycle({
       word: lookupWord, from: domPos, to: domPos + displayWord.length,
       synonyms: Array(CYCLE_SIZE).fill(displayWord),
-      reelPos: 0,
+      reelPos: 0, overlay,
       minWidth: rect.width, naturalWidth: rect.width,
       naturalTop: rect.top, naturalBottom: rect.bottom, naturalLineRight: natRight,
     })
@@ -84,17 +97,19 @@ export function usePopoverLayout(
       // word itself when unmanaged), so a managed word re-offers the original's list.
       const { synonyms, minWidth } = buildSynonyms(lookupWord, candidates, font, rect.width)
       const pe = (fe.closest('p') ?? pEl) as Element | null
-      // Compute compression atomically with min-width — single PM dispatch, no overflow frame.
-      const lineRange = pe
-        ? computeLineCompressionRange(rect.top, rect.bottom, natRight,
+      // In-place mode expands the word to minWidth and compresses the surrounding line to
+      // absorb it. Overlay mode does neither — the opaque card (sized to minWidth) just
+      // floats over the word, so the document never reflows.
+      const lineRange = overlay || !pe
+        ? null
+        : computeLineCompressionRange(rect.top, rect.bottom, natRight,
             rect.width, minWidth, domPos, domPos + displayWord.length, pe, editor)
-        : null
       // Centre the reel on the word currently in the text (may differ from the original
       // for a managed slot), so reopening shows what's there, not the original.
       const cur = displayWord.toLowerCase()
       let reelPos = synonyms.findIndex(s => s !== DELETE_SENTINEL && s.toLowerCase() === cur)
       if (reelPos < 0) reelPos = 0
-      onHintChange(domPos, minWidth, lineRange)
+      onHintChange(domPos, overlay ? null : minWidth, lineRange)
       setCycle(prev => prev?.from === domPos ? { ...prev, synonyms, minWidth, reelPos } : prev)
     })
   }

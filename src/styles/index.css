@@ -6,6 +6,10 @@
   html {
     background-color: #ffffff;
     color: #1a1a1a;
+    /* Stop iOS Safari auto-inflating text, which desyncs the canvas-based width
+       measurements the popover's in-place spacing relies on. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 
   /* Parchment paper texture for the scroll body */

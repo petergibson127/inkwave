@@ -512,6 +512,10 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
   const { fsz, left, rowH, cardH, cardTop, width, fontFamily } = geom
   const reel   = cycle.reelPos
   const mobile = window.innerWidth < 768 ? 1.4 : 1
+  // Overlay mode (touch): the word isn't expanded, so size the opaque card to the widest
+  // synonym (minWidth) and give it the paper colour so it masks the text it floats over.
+  const cardWidth = cycle.overlay ? Math.ceil(cycle.minWidth) : width
+  const cardBg    = cycle.overlay ? '#f7f2e8' : 'transparent'
 
   // Continuous windowed reel: render a band of rings around the live position, each
   // placed by its real distance from centre so the whole strip glides as reel moves.
@@ -571,9 +575,9 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
       {/* Sliding reel card — fully transparent: no border/shadow/background, so the
           word floats directly on the parchment (lines above/below may show through). */}
       <div className="absolute z-50 select-none scas-cycle-card"
-        style={{ top: cardTop, left, width, height: cardH, boxSizing: 'border-box',
+        style={{ top: cardTop, left, width: cardWidth, height: cardH, boxSizing: 'border-box',
                  fontFamily, fontSize: fsz, overflow: 'hidden',
-                 background: 'transparent', WebkitTapHighlightColor: 'transparent' }}>
+                 background: cardBg, WebkitTapHighlightColor: 'transparent' }}>
         {rows}
       </div>
     </>

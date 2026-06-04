@@ -7,6 +7,7 @@ export interface CycleState {
   from: number; to: number
   synonyms: string[]
   reelPos: number               // continuous (un-wrapped) scroll position, in slot units
+  overlay: boolean              // touch/mobile: opaque floating card, no expand/compress
   minWidth: number; naturalWidth: number
   naturalTop: number; naturalBottom: number; naturalLineRight: number
 }
