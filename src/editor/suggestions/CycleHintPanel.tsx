@@ -4,6 +4,8 @@
 // Desktop: fixed panel in the right viewport margin, vertically centred.
 // Mobile:  fixed strip along the bottom edge.
 
+import { Fragment } from 'react'
+
 interface Hint {
   keys: string
   label: string
@@ -37,14 +39,14 @@ export function CycleHintPanel({ active, showHints, containerRight }: CycleHintP
         style={{ border: '1px solid rgba(92, 45, 138, 0.75)', borderRadius: '10px', gridTemplateColumns: 'auto auto', gap: '0.625rem 0.5rem', top: '20vh', left: containerRight + 8 }}
       >
         {HINTS.map(({ keys, label }) => (
-          <>
-            <span key={keys + '-k'} className="font-mono text-xs text-stone-400 text-right whitespace-nowrap">
+          <Fragment key={keys}>
+            <span className="font-mono text-xs text-stone-400 text-right whitespace-nowrap">
               {keys.startsWith('⇧') ? <><strong>⇧</strong>{keys.slice(1)}</> : keys}
             </span>
-            <span key={keys + '-l'} className="text-xs text-stone-600 whitespace-nowrap">
+            <span className="text-xs text-stone-600 whitespace-nowrap">
               {label}
             </span>
-          </>
+          </Fragment>
         ))}
       </div>
 
