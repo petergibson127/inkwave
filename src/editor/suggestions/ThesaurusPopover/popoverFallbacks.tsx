@@ -11,19 +11,17 @@ export function displayFor(s: string, mobileScale = 1): React.ReactNode {
   return <span style={style}>⌫</span>
 }
 
-// Fills CYCLE_SIZE-1 synonym slots + DELETE_SENTINEL, cycling through candidates if short.
+// Fills all CYCLE_SIZE slots from [original, ...synonyms], cycling if short.
+// No delete slot — deletion is done by double-clicking the word in the editor.
 // Returns the slot array and the card min-width (widest synonym + horizontal padding).
 export function buildSynonyms(
   displayWord: string, candidates: string[], font: string, wordWidth: number,
 ): { synonyms: string[]; minWidth: number } {
   const pool     = [displayWord, ...candidates]
-  const synonyms = [
-    ...Array.from({ length: CYCLE_SIZE - 1 }, (_, i) => pool[i % pool.length]),
-    DELETE_SENTINEL,
-  ]
+  const synonyms = Array.from({ length: CYCLE_SIZE }, (_, i) => pool[i % pool.length])
   const minWidth = Math.max(
     wordWidth,
-    ...synonyms.filter(s => s !== DELETE_SENTINEL).map(s => measureTextWidth(s, font)),
+    ...synonyms.map(s => measureTextWidth(s, font)),
   ) + CARD_PAD_X * 2
   return { synonyms, minWidth }
 }

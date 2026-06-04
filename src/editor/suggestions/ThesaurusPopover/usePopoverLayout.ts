@@ -69,7 +69,7 @@ export function usePopoverLayout(
     onHintChange(domPos, rect.width)
     setCycle({
       word: lookupWord, from: domPos, to: domPos + displayWord.length,
-      synonyms: [...Array(CYCLE_SIZE - 1).fill(displayWord), DELETE_SENTINEL],
+      synonyms: Array(CYCLE_SIZE).fill(displayWord),
       reelPos: 0,
       minWidth: rect.width, naturalWidth: rect.width,
       naturalTop: rect.top, naturalBottom: rect.bottom, naturalLineRight: natRight,

@@ -1,8 +1,8 @@
 // ThesaurusPopover — Word-cycle synonym interface.
 // Keyboard: j/k cycle, Space accept+advance, Tab prev word, Shift+Tab next, Esc dismiss
-// Slots: 0 = original word, 1–6 = synonyms, 7 = ⌫ delete
+// Slots: 0 = original word, 1–7 = synonyms (no delete slot — double-tap a word to delete it)
 // Click/touch: opens cycle; drag spins the reel and it rests; short click commits,
-// press-and-hold (anywhere) keeps it open to keep changing.
+// press-and-hold (anywhere) keeps it open to keep changing; double-tap selects for deletion.
 //
 // Stage D animation model: the reel is a CONTINUOUS scroll position (cycle.reelPos,
 // in slot units) rather than discrete steps. A drag moves it 1:1 with the pointer; on
@@ -12,7 +12,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import type { Editor } from '@tiptap/react'
 import { useCompliance } from '../../../scas/compliance'
-import { CYCLE_SIZE, DELETE_SENTINEL } from './popoverConstants'
+import { CYCLE_SIZE } from './popoverConstants'
 import type { OnHintChange } from './popoverConstants'
 import { posOf } from './popoverGeometry'
 import { displayFor } from './popoverFallbacks'
@@ -57,11 +57,19 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
   const engagedRef = useRef(false)         // has the reel reached a non-original slot this session?
   const openedByPointerRef = useRef(false) // did the in-flight press just open the cycle? (don't commit on its release)
 
+  // True while the reel is actually scrolling — drives the "original" marker, which
+  // only shows in motion. Set on every reel frame; a short idle timer clears it.
+  const [moving, setMoving] = useState(false)
+  const movingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   function cancelAnim() {
     if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
   }
   function pushReel() {
     if (!engagedRef.current && Math.round(reelRef.current) !== 0) engagedRef.current = true
+    setMoving(true)
+    if (movingTimerRef.current) clearTimeout(movingTimerRef.current)
+    movingTimerRef.current = setTimeout(() => setMoving(false), 110)
     setCycle(c => c ? { ...c, reelPos: reelRef.current } : c)
   }
 
@@ -101,10 +109,7 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
     if (!cycle) return
     const { from, to } = cycle; const wl = to - from
     onHintChange(null, null)
-    if (replacement === DELETE_SENTINEL) {
-      if (tabCursorRef.current !== null && from < tabCursorRef.current) tabCursorRef.current -= wl
-      editor.chain().deleteRange({ from, to }).run()
-    } else if (replacement !== editor.state.doc.textBetween(from, to)) {
+    if (replacement !== editor.state.doc.textBetween(from, to)) {
       if (tabCursorRef.current !== null && from < tabCursorRef.current) tabCursorRef.current += replacement.length - wl
       // Carry the SCAS-slot mark (anchored to this slot's original word) so the position
       // stays managed: it keeps rendering red/changeable even if the new word is in vocab,
@@ -203,6 +208,8 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
     cancelAnim()
     velRef.current = 0
     engagedRef.current = false
+    if (movingTimerRef.current) clearTimeout(movingTimerRef.current)
+    setMoving(false)
     reelRef.current = cycle ? cycle.reelPos : 0
     targetRef.current = cycle ? Math.round(cycle.reelPos) : 0
   }, [cycle?.from, cycle?.synonyms]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -296,6 +303,21 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
       acceptLanded(reelRef.current, true)
     }
 
+    // Select a word's range so it can be deleted — the only delete path now that the ⌫
+    // slot is gone. Triggered by a double-tap (detected in onPointerUp; the browser never
+    // fires a native dblclick because opening the cycle rebuilds the word's DOM node).
+    function selectWordForDeletion(from: number, wordTo: number) {
+      cancelAnim(); openedByPointerRef.current = false
+      closeCycle(false, false)   // dismiss without committing or restoring a caret
+      // The open-cycle effect put user-select:none on the editor; its async cleanup may
+      // not have run yet, so restore it now or the programmatic selection won't render.
+      edEl.style.userSelect = ''
+      edEl.style.removeProperty('-webkit-user-select')
+      requestAnimationFrame(() => {
+        if (!editor.isDestroyed) editor.chain().focus().setTextSelection({ from, to: wordTo }).run()
+      })
+    }
+
     // Press + drag up/down spins the reel 1:1 with the pointer (one row-height = one
     // slot). Works for both mouse (button held) and touch (finger down) — we track
     // clientY deltas ourselves rather than movementY, which mobile browsers report
@@ -310,6 +332,7 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
     let lastY: number | null = null
     let lastT = 0
     let downX = 0, downY = 0, downT = 0
+    let lastTapTime = 0, lastTapX = 0, lastTapY = 0   // for manual double-tap detection
     let pushScheduled = false
     function schedulePush() {
       if (pushScheduled) return
@@ -351,6 +374,14 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
       const c = cycleRef.current
       const dist = Math.hypot(e.clientX - downX, e.clientY - downY)
       if (dist < TAP_PX && e.timeStamp - downT < TAP_MS) {
+        // Double-tap (two quick taps near each other) on the open word selects it for
+        // deletion. Detected manually — opening rebuilds the word node, so no native dblclick.
+        if (c && e.timeStamp - lastTapTime < 320 && Math.hypot(e.clientX - lastTapX, e.clientY - lastTapY) < 16) {
+          lastTapTime = 0
+          selectWordForDeletion(c.from, c.to)
+          return
+        }
+        lastTapTime = e.timeStamp; lastTapX = e.clientX; lastTapY = e.clientY
         // The press that opened the cycle leaves it open — don't commit on the same
         // tap, regardless of whether the card painted before this release fired.
         if (opened || !c) return
@@ -505,8 +536,22 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
     )
   }
 
+  // Marker beside the ORIGINAL word's row — shown only while the reel is scrolling.
+  // The original recurs every CYCLE_SIZE rings; follow the nearest one to centre, and
+  // fade it out as it scrolls past the edges (and whenever the reel is still).
+  const origRel     = Math.round(reel / CYCLE_SIZE) * CYCLE_SIZE - reel
+  const origY       = cardTop + cardH / 2 + origRel * rowH
+  const origOpacity = moving ? Math.max(0, Math.min(1, 1.25 - Math.abs(origRel) * 0.55)) : 0
+
   return (
     <>
+      {/* Original-word marker — a small dot tracking the original's row, in motion only */}
+      <div aria-hidden="true" className="absolute z-50 scas-origin-dot"
+        style={{ position: 'absolute', top: origY, left: left - 14,
+                 width: 6, height: 6, borderRadius: '50%', background: '#5c2d8a',
+                 transform: 'translateY(-50%)', opacity: origOpacity,
+                 transition: 'opacity 140ms ease', pointerEvents: 'none' }} />
+
       {/* Sliding reel card — fully transparent: no border/shadow/background, so the
           word floats directly on the parchment (lines above/below may show through). */}
       <div className="absolute z-50 select-none scas-cycle-card"
