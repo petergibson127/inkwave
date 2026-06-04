@@ -11,6 +11,7 @@ import { ThesaurusPopover } from './suggestions/ThesaurusPopover'
 import { CycleHintPanel } from './suggestions/CycleHintPanel'
 import { prefetchSynonyms } from './suggestions/thesaurus'
 import { LimitSelector } from '../components/LimitSelector'
+import { OptionsMenu } from '../components/OptionsMenu'
 import { ComplianceContext, useComplianceProvider } from '../scas/compliance'
 
 interface TiptapEditorProps {
@@ -237,6 +238,8 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
               />
               hints
             </label>
+            <span className="w-px h-5 bg-stone-200" aria-hidden="true" />
+            <OptionsMenu />
           </div>
         </div>
       </div>
