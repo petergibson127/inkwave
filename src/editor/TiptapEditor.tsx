@@ -35,6 +35,8 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   // Ref to the parchment/scroll column — its right edge anchors the options panel.
   const paperRef = useRef<HTMLDivElement>(null)
+  // Ref to the footer toolbar — pinned to the visible viewport bottom on mobile.
+  const footerRef = useRef<HTMLDivElement>(null)
 
   // Shared mutable ref read synchronously by the decoration plugin.
   const hintStateRef = useRef<HintState>({ focusedPos: null, showHints: true, focusedMinWidth: null, lineCompressionRange: null })
@@ -139,6 +141,24 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     editorRef.current = editor
   }, [editor])
 
+  // Keep the footer toolbar pinned to the *visible* viewport bottom so it sits above
+  // iOS Safari's bottom URL/accessory bar (and the on-screen keyboard) instead of being
+  // hidden behind them. No-op on desktop, where the visual and layout viewports match.
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    const update = () => {
+      const el = footerRef.current
+      if (!el) return
+      const offsetBottom = Math.max(0, window.innerHeight - (vv.height + vv.offsetTop))
+      el.style.transform = offsetBottom ? `translateY(-${Math.round(offsetBottom)}px)` : ''
+    }
+    update()
+    vv.addEventListener('resize', update)
+    vv.addEventListener('scroll', update)
+    return () => { vv.removeEventListener('resize', update); vv.removeEventListener('scroll', update) }
+  }, [])
+
   // Track the container's right edge in viewport coords so CycleHintPanel
   // can sit flush against it at any window size or zoom level.
   useEffect(() => {
@@ -224,8 +244,12 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
 
         <CycleHintPanel active={cycleActive} showHints={showHints} containerRight={containerRight} />
 
-        {/* Footer bar */}
-        <div className="fixed bottom-0 left-0 right-0 flex justify-center pb-4 pointer-events-none">
+        {/* Footer bar — pinned to the visible viewport bottom (see effect above) */}
+        <div
+          ref={footerRef}
+          className="fixed bottom-0 left-0 right-0 flex justify-center pointer-events-none"
+          style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}
+        >
           <div
             className="pointer-events-auto flex items-center gap-4 bg-white px-4 py-2 shadow-sm"
             style={{ border: '1px solid rgba(92, 45, 138, 0.75)', borderRadius: '15px' }}
