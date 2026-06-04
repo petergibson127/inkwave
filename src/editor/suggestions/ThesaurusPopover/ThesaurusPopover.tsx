@@ -452,7 +452,7 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
     const rowH  = Math.round(fsz * 1.15)
     const cardH = rowH * 3                    // prev / current / next visible at once
     return {
-      fsz, left, textMid, rowH, cardH,
+      fsz, left, rowH, cardH,
       cardTop: textMid - cardH / 2,           // current row centred on the focused word
       width: Math.ceil(rect.width),
       fontFamily: cs.fontFamily,
@@ -463,7 +463,7 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
 
   if (!cycle || !geom) return null
   rowHRef.current = geom.rowH
-  const { fsz, left, textMid, rowH, cardH, cardTop, width, fontFamily } = geom
+  const { fsz, left, rowH, cardH, cardTop, width, fontFamily } = geom
   const reel   = cycle.reelPos
   const mobile = window.innerWidth < 768 ? 1.4 : 1
 
@@ -507,11 +507,6 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
 
   return (
     <>
-      {/* Glyph placeholder — vertically centred on the current row */}
-      <div className="absolute z-50 pointer-events-none select-none text-stone-300"
-        style={{ position: 'absolute', top: textMid - rowH / 2, left: left - 18,
-                 height: rowH, lineHeight: `${rowH}px`, fontFamily, fontSize: fsz }}>◯</div>
-
       {/* Sliding reel card — fully transparent: no border/shadow/background, so the
           word floats directly on the parchment (lines above/below may show through). */}
       <div className="absolute z-50 select-none scas-cycle-card"

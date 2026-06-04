@@ -125,4 +125,13 @@
     white-space: nowrap;
     user-select: none;
   }
+
+  /* tab / ⇧+tab are keyboard-only — hide the badges on touch/mobile widths
+     (matches the CycleHintPanel's 720px desktop breakpoint). */
+  @media (max-width: 719px) {
+    .scas-red[data-hint]::before,
+    .scas-red[data-hint]::after {
+      content: none;
+    }
+  }
 }
