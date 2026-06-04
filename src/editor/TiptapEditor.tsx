@@ -227,10 +227,10 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     && window.matchMedia?.('(pointer: coarse) and (hover: none)')?.matches === true
   const keyboardUp = isTouch && focused
   const toolbarHidden = isTouch && !keyboardUp
-  // Lift above the keyboard. Prefer a real visual-viewport shrink when the device reports
-  // one; otherwise estimate by orientation (iOS often doesn't resize for the keyboard).
-  const portrait = typeof window === 'undefined' || (window.matchMedia?.('(orientation: portrait)')?.matches ?? true)
-  const lift = keyboardUp ? (kb.offset > 100 ? kb.offset : (portrait ? 300 : 210)) : 0
+  // A fixed bottom:0 element already sits above the keyboard on iOS (the keyboard isn't
+  // part of the fixed layout). So only add a lift when the device actually reports a
+  // visual-viewport shrink (kb.offset); otherwise leave it at bottom:0 (no transform).
+  const lift = keyboardUp ? kb.offset : 0
 
   const kbDebug = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('kbdebug') === '1'
 
