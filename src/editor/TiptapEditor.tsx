@@ -35,8 +35,9 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   // Ref to the parchment/scroll column — its right edge anchors the options panel.
   const paperRef = useRef<HTMLDivElement>(null)
-  // Ref to the footer toolbar — pinned to the visible viewport bottom on mobile.
-  const footerRef = useRef<HTMLDivElement>(null)
+  // Keyboard state (touch only): the toolbar stays hidden until the on-screen keyboard
+  // opens, then floats just above it (below the URL bar). Driven by the visual viewport.
+  const [kb, setKb] = useState<{ up: boolean; offset: number }>({ up: false, offset: 0 })
 
   // Shared mutable ref read synchronously by the decoration plugin.
   const hintStateRef = useRef<HintState>({ focusedPos: null, showHints: true, focusedMinWidth: null, lineCompressionRange: null })
@@ -141,17 +142,16 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     editorRef.current = editor
   }, [editor])
 
-  // Keep the footer toolbar pinned to the *visible* viewport bottom so it sits above
-  // iOS Safari's bottom URL/accessory bar (and the on-screen keyboard) instead of being
-  // hidden behind them. No-op on desktop, where the visual and layout viewports match.
+  // Track the on-screen keyboard via the visual viewport. `offset` is how much the
+  // visible area is shrunk from the layout bottom (keyboard + any bottom browser bar);
+  // a large offset means the keyboard is open. The toolbar uses this to hide when idle
+  // and float just above the keyboard when typing (touch only).
   useEffect(() => {
     const vv = window.visualViewport
     if (!vv) return
     const update = () => {
-      const el = footerRef.current
-      if (!el) return
-      const offsetBottom = Math.max(0, window.innerHeight - (vv.height + vv.offsetTop))
-      el.style.transform = offsetBottom ? `translateY(-${Math.round(offsetBottom)}px)` : ''
+      const offset = Math.max(0, window.innerHeight - (vv.height + vv.offsetTop))
+      setKb({ up: offset > 150, offset })   // >150px ⇒ keyboard (not just a URL bar)
     }
     update()
     vv.addEventListener('resize', update)
@@ -206,6 +206,11 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     editor?.commands.focus()
   }
 
+  // On touch the footer behaves as a keyboard accessory bar (hidden until typing).
+  const isTouch = typeof navigator !== 'undefined'
+    && ((navigator.maxTouchPoints ?? 0) > 0 || window.matchMedia?.('(pointer: coarse)')?.matches === true)
+  const toolbarHidden = isTouch && !kb.up
+
   return (
     <ComplianceContext.Provider value={compliance}>
       <div className="inkwave-editor-surface min-h-screen bg-white pt-16 pb-32 px-4">
@@ -244,15 +249,25 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
 
         <CycleHintPanel active={cycleActive} showHints={showHints} containerRight={containerRight} />
 
-        {/* Footer bar — pinned to the visible viewport bottom (see effect above) */}
+        {/* Footer bar. On touch it acts like an iOS keyboard-accessory toolbar: hidden
+            until the keyboard opens, then floated just above it (below the URL bar).
+            On desktop it's the usual always-visible bottom bar. */}
         <div
-          ref={footerRef}
           className="fixed bottom-0 left-0 right-0 flex justify-center pointer-events-none"
-          style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}
+          style={{
+            paddingBottom: isTouch ? (kb.up ? '0.5rem' : 0) : 'calc(1rem + env(safe-area-inset-bottom))',
+            transform: isTouch && kb.up ? `translateY(-${Math.round(kb.offset)}px)` : undefined,
+            transition: 'transform 120ms ease',
+          }}
         >
           <div
             className="pointer-events-auto flex items-center gap-4 bg-white px-4 py-2 shadow-sm"
-            style={{ border: '1px solid rgba(92, 45, 138, 0.75)', borderRadius: '15px' }}
+            style={{
+              border: '1px solid rgba(92, 45, 138, 0.75)', borderRadius: '15px',
+              opacity: toolbarHidden ? 0 : 1,
+              pointerEvents: toolbarHidden ? 'none' : 'auto',
+              transition: 'opacity 160ms ease',
+            }}
           >
             <LimitSelector
               value={doc.scasLimitN}
