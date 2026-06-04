@@ -46,14 +46,16 @@ export function OptionsMenu({ paperRight }: { paperRight: number }) {
     { label: 'Settings',    run: () => setModal('settings') },
   ]
 
-  // Position the panel near the right edge of the paper (just inside it), vertically
-  // just above the toolbar — rather than right-aligned to the centred button.
+  // Position the panel 12px inside the right edge of the paper, vertically just above
+  // the toolbar. paperRight is measured (and re-measured on resize/zoom) in CSS px, so
+  // the 12px gap holds at every zoom level.
+  const PAPER_INSET = 12
   const menuStyle: CSSProperties = { border: `1px solid ${INK}66`, borderRadius: '10px' }
   if (menuOpen) {
     const br = btnRef.current?.getBoundingClientRect()
     menuStyle.position = 'fixed'
     menuStyle.bottom = br ? Math.round(window.innerHeight - br.top + 8) : 60
-    menuStyle.right  = Math.max(8, Math.round(window.innerWidth - paperRight + 4))
+    menuStyle.right  = Math.max(8, Math.round(window.innerWidth - paperRight + PAPER_INSET))
   }
 
   return (
