@@ -30,6 +30,10 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   const [cycleActive, setCycleActive] = useState(false)
   const [containerRight, setContainerRight] = useState(0)
   const [paperRight, setPaperRight] = useState(0)
+  // On a phone the toolbar hides while the keyboard is up (editor focused) to free the
+  // screen for writing; it returns when the keyboard is dismissed. Editor focus is the
+  // reliable "keyboard up" signal on iOS.
+  const [editorFocused, setEditorFocused] = useState(false)
 
   // Ref to the relative container div — passed to ThesaurusPopover for accurate positioning.
   const containerRef = useRef<HTMLDivElement>(null)
@@ -99,6 +103,8 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
         spellcheck: 'false',
       },
     },
+    onFocus: () => setEditorFocused(true),
+    onBlur:  () => setEditorFocused(false),
     onTransaction: ({ editor: e }) => {
       const current = docRef.current
       const updated: InkwaveDocument = {
@@ -186,6 +192,12 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     editor?.commands.focus()
   }
 
+  // Hide the toolbar only on touch-only devices (phones/tablets — they have no hover)
+  // while the keyboard is up. Touchscreen laptops keep it (they report hover via trackpad).
+  const isTouch = typeof window !== 'undefined'
+    && window.matchMedia?.('(pointer: coarse) and (hover: none)')?.matches === true
+  const hideToolbar = isTouch && editorFocused
+
   return (
     <ComplianceContext.Provider value={compliance}>
       <div className="inkwave-editor-surface min-h-screen bg-white pt-16 pb-32 px-4">
@@ -228,7 +240,12 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
         <div className="fixed bottom-0 left-0 right-0 flex justify-center pb-4 pointer-events-none">
           <div
             className="pointer-events-auto flex items-center gap-4 bg-white px-4 py-2 shadow-sm"
-            style={{ border: '1px solid rgba(92, 45, 138, 0.75)', borderRadius: '15px' }}
+            style={{
+              border: '1px solid rgba(92, 45, 138, 0.75)', borderRadius: '15px',
+              opacity: hideToolbar ? 0 : 1,
+              pointerEvents: hideToolbar ? 'none' : 'auto',
+              transition: 'opacity 160ms ease',
+            }}
           >
             <LimitSelector
               value={doc.scasLimitN}
