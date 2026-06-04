@@ -1,26 +1,31 @@
 // ThesaurusPopover — Word-cycle synonym interface.
 // Keyboard: j/k cycle, Space accept+advance, Tab prev word, Shift+Tab next, Esc dismiss
 // Slots: 0 = original word, 1–6 = synonyms, 7 = ⌫ delete
-// Click/touch: opens cycle without moving cursor
+// Click/touch: opens cycle; drag spins the reel and it rests; short click commits,
+// press-and-hold (anywhere) keeps it open to keep changing.
+//
+// Stage D animation model: the reel is a CONTINUOUS scroll position (cycle.reelPos,
+// in slot units) rather than discrete steps. A drag moves it 1:1 with the pointer; on
+// release a single rAF physics loop coasts with the release velocity (exponential
+// decay) and then eases to the nearest slot — Apple-picker momentum, not snapping.
 
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import type { Editor } from '@tiptap/react'
 import { useCompliance } from '../../../scas/compliance'
 import { CYCLE_SIZE, DELETE_SENTINEL } from './popoverConstants'
-import type { CycleState, OnHintChange } from './popoverConstants'
+import type { OnHintChange } from './popoverConstants'
 import { posOf } from './popoverGeometry'
 import { displayFor } from './popoverFallbacks'
 import { usePopoverLayout } from './usePopoverLayout'
 
-// Advance the cycle by d slots: currentIdx wraps (used for accept), reelPos is
-// continuous so the render can translate the reel smoothly without seams.
-function stepCycle(c: CycleState, d: number): CycleState {
-  return {
-    ...c,
-    currentIdx: ((c.currentIdx + d) % CYCLE_SIZE + CYCLE_SIZE) % CYCLE_SIZE,
-    reelPos: c.reelPos + d,
-  }
-}
+// The selected slot for a given continuous position = nearest ring, wrapped into [0,SIZE).
+const slotAt = (pos: number) => ((Math.round(pos) % CYCLE_SIZE) + CYCLE_SIZE) % CYCLE_SIZE
+
+// ── Momentum tuning ──────────────────────────────────────────────────────────
+const MAX_VEL    = 0.060   // slots/ms — capped so a frame never jumps the whole window
+const FLING_TAU  = 260     // ms; coast distance ≈ v0 · TAU, so larger = more glide / browse
+const VEL_STOP   = 0.0006  // slots/ms; below this the fling hands off to the settle ease
+const COMMIT_VEL = 0.015   // slots/ms; release slower than this commits, faster coasts (click to accept)
 
 interface ThesaurusPopoverProps {
   editor: Editor
@@ -35,9 +40,29 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
   const tabCursorRef = useRef<number | null>(null)
   const { cycle, setCycle, openCycleForElement } = usePopoverLayout(editor, onHintChange)
 
+  // Bump on scroll/resize so the memoised geometry recomputes; reel animation does NOT
+  // touch this, so per-frame reelPos updates never redo getBoundingClientRect.
+  const [geomNonce, setGeomNonce] = useState(0)
+
   useEffect(() => { onCycleChange(!!cycle) }, [!!cycle]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const redWords = () => Array.from(editor.view.dom.querySelectorAll<HTMLElement>('.scas-red'))
+
+  // ── Reel animation state (refs — authoritative; cycle.reelPos mirrors for render) ──
+  const reelRef   = useRef(0)              // live continuous position
+  const velRef    = useRef(0)              // slots/ms, for momentum
+  const targetRef = useRef(0)              // intended landing slot (keyboard/settle)
+  const rafRef    = useRef<number | null>(null)
+  const rowHRef   = useRef(20)             // current row height in px (from geometry)
+  const engagedRef = useRef(false)         // has the reel reached a non-original slot this session?
+
+  function cancelAnim() {
+    if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
+  }
+  function pushReel() {
+    if (!engagedRef.current && Math.round(reelRef.current) !== 0) engagedRef.current = true
+    setCycle(c => c ? { ...c, reelPos: reelRef.current } : c)
+  }
 
   // ── Cursor management ─────────────────────────────────────────────────────
 
@@ -78,22 +103,76 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
     if (replacement === DELETE_SENTINEL) {
       if (tabCursorRef.current !== null && from < tabCursorRef.current) tabCursorRef.current -= wl
       editor.chain().deleteRange({ from, to }).run()
-    } else {
+    } else if (replacement !== editor.state.doc.textBetween(from, to)) {
       if (tabCursorRef.current !== null && from < tabCursorRef.current) tabCursorRef.current += replacement.length - wl
       editor.chain().deleteRange({ from, to }).insertContentAt(from, replacement).run()
     }
+    // else: committing the unchanged original — record the deliberate choice, skip the edit.
     pinCursor(); recordAccepted(); setCycle(null); advanceOrRestore(from, advance)
   }
 
-  // Refs so the Stage C mouse handlers (subscribed once, below) can read live
-  // cycle state and the latest accept closure without re-subscribing on every
-  // j/k step — which would otherwise reset the wheel/drag accumulators.
+  // Refs so the once-subscribed input handlers below read live state without
+  // re-subscribing (which would reset the drag/wheel accumulators).
   const cycleRef = useRef(cycle)
   cycleRef.current = cycle
   const acceptRef = useRef(acceptSuggestion)
   acceptRef.current = acceptSuggestion
 
-  // ── Events ────────────────────────────────────────────────────────────────
+  // ── Reel motion ─────────────────────────────────────────────────────────────
+
+  function acceptLanded(pos: number, advance: boolean) {
+    const c = cycleRef.current; if (!c) return
+    acceptRef.current(c.synonyms[slotAt(pos)], advance)
+  }
+
+  // Ease reelPos to an integer slot and rest there. No commit — the writer accepts
+  // by tapping the rested word (or anywhere else); see the pointer handlers below.
+  function settleTo(target: number) {
+    cancelAnim()
+    targetRef.current = target
+    const start = reelRef.current
+    const dist  = target - start
+    if (Math.abs(dist) < 0.001) { reelRef.current = target; pushReel(); return }
+    const dur = Math.min(280, 130 + Math.abs(dist) * 90)
+    let t0: number | null = null
+    const step = (t: number) => {
+      if (t0 === null) t0 = t
+      const p = Math.min(1, (t - t0) / dur)
+      const e = 1 - Math.pow(1 - p, 3)            // easeOutCubic
+      reelRef.current = start + dist * e
+      pushReel()
+      if (p < 1) { rafRef.current = requestAnimationFrame(step) }
+      else { rafRef.current = null; reelRef.current = target; pushReel() }
+    }
+    rafRef.current = requestAnimationFrame(step)
+  }
+
+  // Coast with the release velocity, decaying exponentially, then rest on the nearest
+  // slot. Low/zero v0 rests almost immediately. No auto-commit — tap to accept.
+  function fling(v0: number) {
+    cancelAnim()
+    velRef.current = Math.max(-MAX_VEL, Math.min(MAX_VEL, v0))
+    let last: number | null = null
+    const step = (t: number) => {
+      if (last === null) last = t
+      let dt = t - last; last = t
+      if (dt > 50) dt = 50                         // clamp tab-switch / GC stalls
+      reelRef.current += velRef.current * dt
+      velRef.current  *= Math.exp(-dt / FLING_TAU)
+      pushReel()
+      if (Math.abs(velRef.current) < VEL_STOP) { rafRef.current = null; settleTo(Math.round(reelRef.current)) }
+      else rafRef.current = requestAnimationFrame(step)
+    }
+    rafRef.current = requestAnimationFrame(step)
+  }
+
+  // Keyboard j/k: glide one slot, chaining off the pending target if mid-animation.
+  function nudge(dir: number) {
+    const base = rafRef.current !== null ? targetRef.current : Math.round(reelRef.current)
+    settleTo(base + dir)
+  }
+
+  // ── Open (pointer) / focus reset ─────────────────────────────────────────────
 
   useEffect(() => {
     if (!editor) return
@@ -101,27 +180,45 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
     function onPointerDown(e: PointerEvent) {
       const t = (e.target as HTMLElement).closest('.scas-red') as HTMLElement | null
       if (!t || !edEl.contains(t)) return
-      e.preventDefault(); tabCursorRef.current = null; openCycleForElement(t)
+      e.preventDefault(); tabCursorRef.current = null
+      openCycleForElement(t)
     }
     document.addEventListener('pointerdown', onPointerDown, { capture: true })
     return () => document.removeEventListener('pointerdown', onPointerDown, { capture: true })
   }, [editor]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reset the reel whenever a different word is focused (or the cycle opens/closes).
+  // Keyed on `from` only — synonym loads (which keep `from`) must not reset position.
+  useEffect(() => {
+    cancelAnim()
+    velRef.current = 0
+    engagedRef.current = false
+    reelRef.current = cycle ? cycle.reelPos : 0
+    targetRef.current = cycle ? Math.round(cycle.reelPos) : 0
+  }, [cycle?.from]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Keyboard ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!editor) return
     function onKeyDown(e: KeyboardEvent) {
       if (cycle) {
         e.stopPropagation()
-        if (e.key === 'Escape') { e.preventDefault(); closeCycle(); return }
-        if (e.key === 'j') { e.preventDefault(); setCycle(c => c ? stepCycle(c, -1) : c); return }
-        if (e.key === 'k') { e.preventDefault(); setCycle(c => c ? stepCycle(c, +1) : c); return }
+        if (e.key === 'Escape') { e.preventDefault(); cancelAnim(); closeCycle(); return }
+        if (e.key === 'j') { e.preventDefault(); nudge(-1); return }
+        if (e.key === 'k') { e.preventDefault(); nudge(+1); return }
         if (e.key === 'Tab') {
           e.preventDefault(); recordIgnored()
           const found = e.shiftKey ? goNext(cycle.from) : goPrev(cycle.from)
           if (!found) { onHintChange(null, null); setCycle(null); restoreCursor() }
           return
         }
-        if (e.key === ' ') { e.preventDefault(); acceptSuggestion(cycle.synonyms[cycle.currentIdx], true); return }
+        if (e.key === ' ') {
+          e.preventDefault()
+          const sel = rafRef.current !== null ? targetRef.current : reelRef.current
+          acceptSuggestion(cycle.synonyms[slotAt(sel)], true)
+          return
+        }
         if (e.key === 'Enter') { e.preventDefault(); return }
         e.preventDefault(); return
       }
@@ -144,15 +241,12 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
     return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
   }, [editor, cycle, paragraphIndex]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Stage C — mouse input ───────────────────────────────────────────────────
-  // Subscribed once (deps: [editor]); reads live state via cycleRef/acceptRef so
-  // the wheel/drag accumulators survive the rapid setCycle updates cycling fires.
+  // ── Pointer / wheel input ─────────────────────────────────────────────────────
+  // Subscribed once (deps: [editor]); reads live state via refs so the drag/wheel
+  // accumulators survive the per-frame setCycle updates the animation fires.
   useEffect(() => {
     if (!editor) return
     const edEl = editor.view.dom
-
-    // currentIdx delta: +1 = k (toward the word shown below), -1 = j (above).
-    const cycleBy = (d: number) => setCycle(c => c ? stepCycle(c, d) : c)
 
     const overTarget = (t: EventTarget | null) => {
       const el = t as HTMLElement | null
@@ -162,8 +256,8 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
     // Trackpad-vs-mouse-wheel is heuristic — there is no reliable API. Physical
     // wheels emit line/page granularity OR large fixed integer pixel steps with no
     // horizontal component; trackpads emit small, often fractional pixel deltas and
-    // frequently carry a horizontal component. We cycle ONLY on trackpad scrolls and
-    // ignore the physical mouse wheel, leaving it free for the future anti-cheat gate.
+    // frequently carry a horizontal component. We scroll ONLY on trackpad and ignore
+    // the physical mouse wheel, leaving it free for the future anti-cheat gate.
     function isTrackpadScroll(e: WheelEvent): boolean {
       if (e.deltaMode !== 0) return false           // line/page mode → physical wheel
       if (e.deltaX !== 0) return true               // horizontal jitter → trackpad
@@ -171,173 +265,227 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
       return Math.abs(e.deltaY) < 50                // small step → trackpad; large notch → wheel
     }
 
-    const WHEEL_STEP = 40
-    let wheelAccum = 0
+    // Trackpad: scroll the continuous reel directly, then settle to the nearest slot
+    // when the gesture goes idle (no accept — trackpad is for browsing).
+    let wheelIdle: ReturnType<typeof setTimeout> | null = null
     function onWheel(e: WheelEvent) {
       if (!cycleRef.current || !overTarget(e.target)) return
       if (!isTrackpadScroll(e)) return              // reserved for the anti-cheat gate
       e.preventDefault()
-      wheelAccum += e.deltaY
-      while (wheelAccum >=  WHEEL_STEP) { cycleBy(-1); wheelAccum -= WHEEL_STEP }  // down → j
-      while (wheelAccum <= -WHEEL_STEP) { cycleBy(1);  wheelAccum += WHEEL_STEP }  // up → k
+      cancelAnim()
+      reelRef.current -= e.deltaY / (rowHRef.current || 1)   // down → previous, matching a downward drag
+      pushReel()
+      if (wheelIdle) clearTimeout(wheelIdle)
+      wheelIdle = setTimeout(() => settleTo(Math.round(reelRef.current)), 90)
     }
 
-    // Right-click accepts the current synonym (same as Space).
+    // Right-click accepts the centred word and advances (same as Space).
     function onContextMenu(e: MouseEvent) {
-      const c = cycleRef.current
-      if (!c || !overTarget(e.target)) return
+      if (!cycleRef.current || !overTarget(e.target)) return
       e.preventDefault()
-      acceptRef.current(c.synonyms[c.currentIdx], true)
+      acceptLanded(reelRef.current, true)
     }
 
-    // Press + drag up/down cycles, ~20px per step. Works for both mouse (button
-    // held) and touch (finger down) — we track clientY deltas ourselves rather
-    // than movementY, which mobile browsers report unreliably on touch pointers.
-    // Releasing after a drag that moved the reel commits the word it landed on.
+    // Press + drag up/down spins the reel 1:1 with the pointer (one row-height = one
+    // slot). Works for both mouse (button held) and touch (finger down) — we track
+    // clientY deltas ourselves rather than movementY, which mobile browsers report
+    // unreliably on touch pointers. Releasing flings with the gathered velocity and
+    // the reel RESTS.
     //
-    // Steps are coalesced into one setCycle per animation frame: touch pointermove
-    // can fire faster than the display refreshes, and a render-per-event janks the
-    // phone. baseIdx + netSteps is the source of truth for the landed-on slot, so
-    // the release accepts correctly regardless of React's render timing.
-    const DRAG_STEP = 20
-    let dragAccum = 0
-    let lastY: number | null = null // non-null once a held drag is in progress
-    let baseIdx  = 0                // currentIdx when this drag began
-    let netSteps = 0                // steps accumulated since drag began
-    let applied  = 0                // steps already pushed to React state
-    let rafId: number | null = null
-    function flush() {
-      rafId = null
-      const delta = netSteps - applied
-      if (delta !== 0) { cycleBy(delta); applied = netSteps }
+    // Commit model: a SHORT click (still + quick) commits the rested word. A press-
+    // and-hold — on the word or anywhere else — does NOT commit, so you can keep
+    // changing it (drag to scroll, release to rest, repeat) until a short click.
+    const TAP_PX = 6                                 // pointer travel under this = still
+    const TAP_MS = 250                               // press under this = a short click (commit)
+    let lastY: number | null = null
+    let lastT = 0
+    let downX = 0, downY = 0, downT = 0
+    let pushScheduled = false
+    function schedulePush() {
+      if (pushScheduled) return
+      pushScheduled = true
+      requestAnimationFrame(() => { pushScheduled = false; pushReel() })
+    }
+    function onPointerDown(e: PointerEvent) {
+      downX = e.clientX; downY = e.clientY; downT = e.timeStamp
+      lastY = null                                   // a drag begins on the first move
     }
     function onPointerMove(e: PointerEvent) {
       if (!(e.buttons & 1) || !cycleRef.current) { lastY = null; return }
-      if (lastY === null) {
-        lastY = e.clientY; baseIdx = cycleRef.current.currentIdx
-        netSteps = 0; applied = 0; edEl.style.userSelect = 'none'; return
+      if (lastY === null) {                          // drag begins — grab any in-flight momentum
+        cancelAnim()
+        lastY = e.clientY; lastT = e.timeStamp; velRef.current = 0
+        return
       }
-      dragAccum += e.clientY - lastY
+      const rowH = rowHRef.current || 1
+      const dPos = -(e.clientY - lastY) / rowH       // finger up → reel advances (k)
       lastY = e.clientY
-      while (dragAccum <= -DRAG_STEP) { netSteps += 1; dragAccum += DRAG_STEP }  // up → k
-      while (dragAccum >=  DRAG_STEP) { netSteps -= 1; dragAccum -= DRAG_STEP }  // down → j
-      if (netSteps !== applied && rafId === null) rafId = requestAnimationFrame(flush)
+      reelRef.current += dPos
+      const dt = Math.max(1, e.timeStamp - lastT); lastT = e.timeStamp
+      velRef.current = velRef.current * 0.6 + (dPos / dt) * 0.4   // smoothed slots/ms
+      schedulePush()
     }
-    function endDrag(accept: boolean) {
-      if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null }
-      if (lastY !== null) edEl.style.userSelect = ''
-      // A drag that moved the reel commits on release; a stationary press (a plain
-      // click/tap that just opens the cycle) leaves it open for keyboard/tap input.
-      if (accept && netSteps !== 0) {
-        const c = cycleRef.current
-        if (c) {
-          const idx = (((baseIdx + netSteps) % CYCLE_SIZE) + CYCLE_SIZE) % CYCLE_SIZE
-          acceptRef.current(c.synonyms[idx], false)
-        }
-      } else {
-        flush()  // cancel / no-accept: settle the reel to its final dragged position
+    // Commit the word the reel is resting on, honouring the original/engaged rule:
+    // the original (slot 0) only commits once the reel has actually moved a spot.
+    function commitRested() {
+      const c = cycleRef.current; if (!c) return
+      const idx = slotAt(reelRef.current)
+      if (idx === 0 && !engagedRef.current) closeCycle()
+      else acceptRef.current(c.synonyms[idx], false)
+    }
+    function onPointerUp(e: PointerEvent) {
+      const wasDragging = lastY !== null
+      lastY = null
+      const c = cycleRef.current
+      const dist = Math.hypot(e.clientX - downX, e.clientY - downY)
+      if (dist < TAP_PX && e.timeStamp - downT < TAP_MS) {
+        // A short click → commit the rested word. The opening click (cycle not yet
+        // rendered) and clicks on another red word are left to the open handler.
+        if (!c) return
+        const el = e.target as HTMLElement | null
+        if (el?.closest?.('.scas-red') && !el.closest?.('.scas-cycle-card')) return
+        cancelAnim(); commitRested()
+        return
       }
-      lastY = null; dragAccum = 0; netSteps = 0; applied = 0
+      if (wasDragging && c) {
+        // A gentle release means the reel has effectively landed → commit it. (If the
+        // finger paused before lifting, the smoothed velocity is stale, so treat a
+        // pre-release pause as zero so a deliberate landing still commits.) A faster
+        // flick coasts and rests instead — click again to accept.
+        const v = e.timeStamp - lastT > 80 ? 0 : velRef.current
+        if (Math.abs(v) <= COMMIT_VEL) { cancelAnim(); commitRested() }
+        else fling(v)
+      }
     }
-    const onPointerUp     = () => endDrag(true)
-    const onPointerCancel = () => endDrag(false)
+    function onPointerCancel() {
+      if (lastY === null) return
+      lastY = null; fling(velRef.current)
+    }
+    // Suppress text-selection (highlighting) anywhere while a cycle is open — e.g. a
+    // second press-and-drag away from the word would otherwise select editor text.
+    function onSelectStart(e: Event) { if (cycleRef.current) e.preventDefault() }
     // Keep a touch drag from scrolling the document while it's steering the reel.
     function onTouchMove(e: TouchEvent) { if (lastY !== null) e.preventDefault() }
 
     document.addEventListener('wheel', onWheel, { passive: false })
     document.addEventListener('contextmenu', onContextMenu)
+    document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('pointermove', onPointerMove)
     document.addEventListener('pointerup', onPointerUp)
     document.addEventListener('pointercancel', onPointerCancel)
     document.addEventListener('touchmove', onTouchMove, { passive: false })
+    document.addEventListener('selectstart', onSelectStart)
     return () => {
+      if (wheelIdle) clearTimeout(wheelIdle)
       document.removeEventListener('wheel', onWheel)
       document.removeEventListener('contextmenu', onContextMenu)
+      document.removeEventListener('pointerdown', onPointerDown)
       document.removeEventListener('pointermove', onPointerMove)
       document.removeEventListener('pointerup', onPointerUp)
       document.removeEventListener('pointercancel', onPointerCancel)
       document.removeEventListener('touchmove', onTouchMove)
+      document.removeEventListener('selectstart', onSelectStart)
     }
   }, [editor]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // While a cycle is open, suppress native touch-scroll on the editor so a finger
-  // drag cycles synonyms instead of scrolling the document. Restored on close.
+  // drag spins the reel instead of scrolling the document. Restored on close.
   useEffect(() => {
     if (!cycle || !editor) return
     const el = editor.view.dom as HTMLElement
-    const prev = el.style.touchAction
+    const prevTouch  = el.style.touchAction
+    const prevSelect = el.style.userSelect
     el.style.touchAction = 'none'
-    return () => { el.style.touchAction = prev }
+    el.style.userSelect = 'none'
+    el.style.setProperty('-webkit-user-select', 'none')
+    return () => {
+      el.style.touchAction = prevTouch
+      el.style.userSelect = prevSelect
+      el.style.removeProperty('-webkit-user-select')
+    }
   }, [!!cycle]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Re-measure geometry on scroll/resize.
   useEffect(() => {
     if (!cycle) return
-    const outside = (t: HTMLElement | null) => !!t && !t.closest?.('.scas-red') && !t.closest?.('.scas-cycle-card')
-    const onMD = (e: MouseEvent)  => { if (outside(e.target as HTMLElement)) closeCycle() }
-    const onTS = (e: TouchEvent)  => {
-      const t = e.touches[0] && document.elementFromPoint(e.touches[0].clientX, e.touches[0].clientY) as HTMLElement | null
-      if (outside(t)) closeCycle()
+    const bump = () => setGeomNonce(n => n + 1)
+    window.addEventListener('resize', bump)
+    window.addEventListener('scroll', bump, true)
+    return () => { window.removeEventListener('resize', bump); window.removeEventListener('scroll', bump, true) }
+  }, [!!cycle]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Geometry (memoised — depends on the focused word, NOT the reel position) ──
+
+  const geom = useMemo(() => {
+    if (!cycle) return null
+    const focusedEl = editor.view.dom.querySelector('.scas-focused') as HTMLElement | null
+    const cRect     = containerEl.current?.getBoundingClientRect()
+    if (!focusedEl || !cRect) return null
+
+    const rect = focusedEl.getBoundingClientRect()
+    const cs   = window.getComputedStyle(focusedEl)
+    const fsz  = parseFloat(cs.fontSize) || 18
+    const left = rect.left - cRect.left
+
+    const textNode = focusedEl.firstChild
+    let textMid: number
+    if (textNode?.nodeType === Node.TEXT_NODE) {
+      const rng = document.createRange(); rng.selectNodeContents(textNode)
+      const tr  = rng.getBoundingClientRect()
+      textMid   = tr.top - cRect.top + tr.height / 2
+    } else {
+      textMid = rect.top - cRect.top + rect.height / 2
     }
-    document.addEventListener('mousedown', onMD)
-    document.addEventListener('touchstart', onTS, { passive: true })
-    return () => { document.removeEventListener('mousedown', onMD); document.removeEventListener('touchstart', onTS) }
-  }, [cycle]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    const rowH  = Math.round(fsz * 1.15)
+    const cardH = rowH * 3                    // prev / current / next visible at once
+    return {
+      fsz, left, textMid, rowH, cardH,
+      cardTop: textMid - cardH / 2,           // current row centred on the focused word
+      width: Math.ceil(rect.width),
+      fontFamily: cs.fontFamily,
+    }
+  }, [cycle?.from, cycle?.minWidth, geomNonce]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  if (!cycle) return null
-  const focusedEl = editor.view.dom.querySelector('.scas-focused') as HTMLElement | null
-  const cRect     = containerEl.current?.getBoundingClientRect()
-  if (!focusedEl || !cRect) return null
+  if (!cycle || !geom) return null
+  rowHRef.current = geom.rowH
+  const { fsz, left, textMid, rowH, cardH, cardTop, width, fontFamily } = geom
+  const reel   = cycle.reelPos
+  const mobile = window.innerWidth < 768 ? 1.4 : 1
 
-  const rect = focusedEl.getBoundingClientRect()
-  const cs   = window.getComputedStyle(focusedEl)
-  const fsz  = parseFloat(cs.fontSize) || 18
-  const left = rect.left - cRect.left
-
-  const textNode = focusedEl.firstChild
-  let textMid: number
-  if (textNode?.nodeType === Node.TEXT_NODE) {
-    const rng = document.createRange(); rng.selectNodeContents(textNode)
-    const tr  = rng.getBoundingClientRect()
-    textMid   = tr.top - cRect.top + tr.height / 2
-  } else {
-    textMid = rect.top - cRect.top + rect.height / 2
-  }
-
-  const rowH    = Math.round(fsz * 1.15)
-  const cardH   = rowH * 3                 // prev / current / next visible at once
-  const cardTop = textMid - cardH / 2      // current row centred on the focused word
-  const mobile  = window.innerWidth < 768 ? 1.4 : 1
-
-  // Continuous reel (Stage D): render a small window of slots around reelPos and
-  // let CSS transitions slide each word between positions as the cycle advances.
-  // d 0 = centre (current), ±1 = neighbours, |d|≥2 = hidden buffer the incoming
-  // row animates in from. Keys are slot indices (stable while on-screen), so a
-  // given word keeps its DOM node and its top/opacity/size transition smoothly.
-  const WINDOW = 2
+  // Continuous windowed reel: render a band of rings around the live position, each
+  // placed by its real distance from centre so the whole strip glides as reel moves.
+  // Keys are absolute ring indices, so a word keeps its DOM node as it crosses the
+  // centre; rows only mount/unmount at the faded edges (invisible). WINDOW=3 keeps the
+  // 3-row card filled plus a fade margin, so a fast spin never shows white.
+  const WINDOW = 3
+  const base = Math.round(reel)
   const rows: React.ReactNode[] = []
   for (let d = -WINDOW; d <= WINDOW; d++) {
-    const slotIdx = (((cycle.reelPos + d) % CYCLE_SIZE) + CYCLE_SIZE) % CYCLE_SIZE
-    const word    = cycle.synonyms[slotIdx]
-    const center  = d === 0
+    const ring    = base + d
+    const word    = cycle.synonyms[((ring % CYCLE_SIZE) + CYCLE_SIZE) % CYCLE_SIZE]
+    const rel     = ring - reel                       // continuous offset from centre, in rows
+    const a       = Math.abs(rel)
     const isOrig  = word === cycle.synonyms[0]
-    const opacity = Math.abs(d) >= 2 ? 0 : center ? (word === DELETE_SENTINEL ? 0.70 : 1) : 0.72
+    const opacity = Math.max(0, Math.min(1, 1.22 - a * 0.6))
+    const scale   = Math.max(0.9, 1 - a * 0.035)    // gentle depth cue; big swings read as jiggle
     rows.push(
-      <div key={slotIdx} onClick={() => acceptSuggestion(word, true)}
+      <div key={ring}
         style={{
           position: 'absolute', left: 0, right: 0, height: rowH,
-          top: (cardH - rowH) / 2 + d * rowH,
+          top: (cardH - rowH) / 2,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           whiteSpace: 'nowrap', overflow: 'hidden', cursor: 'pointer',
           fontSize: fsz,
-          transform: center ? 'scale(1)' : 'scale(0.92)',
+          // Move via translateY (compositor-only) rather than `top`, which relayouts
+          // every frame and shimmers the glyphs. Scale is folded into the same transform.
+          transform: `translateY(${(rel * rowH).toFixed(2)}px) scale(${scale.toFixed(3)})`,
           transformOrigin: 'center',
+          willChange: 'transform',
           color: isOrig ? '#5c2d8a' : '#9b5ccc',
           opacity,
-          // Animate only composited props (top/opacity/transform) — a font-size
-          // transition forces per-frame text relayout and janks the slide on mobile.
-          transition: 'top 150ms ease, opacity 150ms ease, transform 150ms ease',
           WebkitTapHighlightColor: 'transparent',
         }}>
         {displayFor(word, mobile)}
@@ -350,12 +498,12 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
       {/* Glyph placeholder — vertically centred on the current row */}
       <div className="absolute z-50 pointer-events-none select-none text-stone-300"
         style={{ position: 'absolute', top: textMid - rowH / 2, left: left - 18,
-                 height: rowH, lineHeight: `${rowH}px`, fontFamily: cs.fontFamily, fontSize: fsz }}>◯</div>
+                 height: rowH, lineHeight: `${rowH}px`, fontFamily, fontSize: fsz }}>◯</div>
 
       {/* Sliding reel card */}
       <div className="absolute z-50 select-none scas-cycle-card"
-        style={{ top: cardTop, left, width: Math.ceil(rect.width), height: cardH, boxSizing: 'border-box',
-                 fontFamily: cs.fontFamily, fontSize: fsz, overflow: 'hidden',
+        style={{ top: cardTop, left, width, height: cardH, boxSizing: 'border-box',
+                 fontFamily, fontSize: fsz, overflow: 'hidden',
                  background: 'white', border: '1px solid rgba(92, 45, 138, 0.75)', borderRadius: '10px',
                  boxShadow: '0 1px 4px rgba(0,0,0,0.06)', WebkitTapHighlightColor: 'transparent' }}>
         {rows}
