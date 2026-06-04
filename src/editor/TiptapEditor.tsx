@@ -39,6 +39,10 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   // opens, then floats just above it (below the URL bar). Driven by the visual viewport.
   const [kb, setKb] = useState({ up: false, offset: 0, vh: 0, ot: 0, ref: 0, ih: 0 })
   const maxVHRef = useRef(0)   // largest visual-viewport height seen = the no-keyboard height
+  // Editor focus is the reliable "keyboard is up" signal on iOS (some devices never
+  // resize the visual viewport for the keyboard). Small grace timer avoids flicker.
+  const [focused, setFocused] = useState(false)
+  const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Shared mutable ref read synchronously by the decoration plugin.
   const hintStateRef = useRef<HintState>({ focusedPos: null, showHints: true, focusedMinWidth: null, lineCompressionRange: null })
@@ -103,6 +107,8 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
         spellcheck: 'false',
       },
     },
+    onFocus: () => { if (blurTimerRef.current) clearTimeout(blurTimerRef.current); setFocused(true) },
+    onBlur:  () => { blurTimerRef.current = setTimeout(() => setFocused(false), 150) },
     onTransaction: ({ editor: e }) => {
       const current = docRef.current
       const updated: InkwaveDocument = {
@@ -219,7 +225,12 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   // laptops — they have a trackpad (hover), so the toolbar stays always-visible there.
   const isTouch = typeof window !== 'undefined'
     && window.matchMedia?.('(pointer: coarse) and (hover: none)')?.matches === true
-  const toolbarHidden = isTouch && !kb.up
+  const keyboardUp = isTouch && focused
+  const toolbarHidden = isTouch && !keyboardUp
+  // Lift above the keyboard. Prefer a real visual-viewport shrink when the device reports
+  // one; otherwise estimate by orientation (iOS often doesn't resize for the keyboard).
+  const portrait = typeof window === 'undefined' || (window.matchMedia?.('(orientation: portrait)')?.matches ?? true)
+  const lift = keyboardUp ? (kb.offset > 100 ? kb.offset : (portrait ? 300 : 210)) : 0
 
   const kbDebug = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('kbdebug') === '1'
 
@@ -230,7 +241,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
           <div style={{ position: 'fixed', top: 0, left: 0, zIndex: 200, background: 'rgba(0,0,0,0.85)',
                         color: '#5f5', font: '11px monospace', padding: '3px 6px', pointerEvents: 'none',
                         whiteSpace: 'nowrap' }}>
-            touch:{String(isTouch)} up:{String(kb.up)} off:{kb.offset} vh:{kb.vh} ot:{kb.ot} ref:{kb.ref} ih:{kb.ih}
+            touch:{String(isTouch)} foc:{String(focused)} up:{String(keyboardUp)} lift:{lift} off:{kb.offset} vh:{kb.vh} ref:{kb.ref} ih:{kb.ih}
           </div>
         )}
         {/* Scroll container — slightly wider than text column */}
@@ -274,8 +285,8 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
         <div
           className="fixed bottom-0 left-0 right-0 flex justify-center pointer-events-none"
           style={{
-            paddingBottom: isTouch ? (kb.up ? '0.5rem' : 0) : 'calc(1rem + env(safe-area-inset-bottom))',
-            transform: isTouch && kb.up ? `translateY(-${Math.round(kb.offset)}px)` : undefined,
+            paddingBottom: isTouch ? (keyboardUp ? '0.5rem' : 0) : 'calc(1rem + env(safe-area-inset-bottom))',
+            transform: lift ? `translateY(-${Math.round(lift)}px)` : undefined,
             transition: 'transform 120ms ease',
           }}
         >
