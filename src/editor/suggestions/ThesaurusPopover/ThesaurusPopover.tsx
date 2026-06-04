@@ -69,11 +69,11 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
   // Turn the "moving" flag off once the reel is genuinely at rest — but NOT while a drag
   // is held (even paused/stationary) or an animation is running, so a slow drag never
   // blinks the marker off between pointer-move events.
-  function scheduleMovingOff() {
+  function scheduleMovingOff(delay = 120) {
     if (movingTimerRef.current) clearTimeout(movingTimerRef.current)
     movingTimerRef.current = setTimeout(() => {
       if (!draggingRef.current && rafRef.current === null) setMoving(false)
-    }, 120)
+    }, delay)
   }
   function pushReel() {
     if (!engagedRef.current && Math.round(reelRef.current) !== 0) engagedRef.current = true
@@ -217,10 +217,12 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
     cancelAnim()
     velRef.current = 0
     engagedRef.current = false
-    if (movingTimerRef.current) clearTimeout(movingTimerRef.current)
-    setMoving(false)
     reelRef.current = cycle ? cycle.reelPos : 0
     targetRef.current = cycle ? Math.round(cycle.reelPos) : 0
+    // Light the original marker the moment a cycle opens or moves to another word — it
+    // renders only if the original is in view — then let it linger briefly and fade.
+    if (cycle) { setMoving(true); scheduleMovingOff(650) }
+    else { if (movingTimerRef.current) clearTimeout(movingTimerRef.current); setMoving(false) }
   }, [cycle?.from, cycle?.synonyms]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Keyboard ──────────────────────────────────────────────────────────────
@@ -380,7 +382,7 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
       const wasDragging = lastY !== null
       lastY = null
       draggingRef.current = false
-      scheduleMovingOff()   // released: let the marker fade out once the reel rests
+      if (wasDragging) scheduleMovingOff()   // released a drag: fade once the reel rests
       const opened = openedByPointerRef.current
       openedByPointerRef.current = false
       const c = cycleRef.current
@@ -415,8 +417,7 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
     function onPointerCancel() {
       const wasDragging = lastY !== null
       lastY = null; draggingRef.current = false
-      if (wasDragging) fling(velRef.current)
-      scheduleMovingOff()
+      if (wasDragging) { fling(velRef.current); scheduleMovingOff() }
     }
     // Suppress text-selection (highlighting) anywhere while a cycle is open — e.g. a
     // second press-and-drag away from the word would otherwise select editor text.
