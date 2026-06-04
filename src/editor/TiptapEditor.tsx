@@ -37,7 +37,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   const paperRef = useRef<HTMLDivElement>(null)
   // Keyboard state (touch only): the toolbar stays hidden until the on-screen keyboard
   // opens, then floats just above it (below the URL bar). Driven by the visual viewport.
-  const [kb, setKb] = useState<{ up: boolean; offset: number }>({ up: false, offset: 0 })
+  const [kb, setKb] = useState({ up: false, offset: 0, vh: 0, ot: 0, ref: 0, ih: 0 })
 
   // Shared mutable ref read synchronously by the decoration plugin.
   const hintStateRef = useRef<HintState>({ focusedPos: null, showHints: true, focusedMinWidth: null, lineCompressionRange: null })
@@ -150,8 +150,12 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     const vv = window.visualViewport
     if (!vv) return
     const update = () => {
-      const offset = Math.max(0, window.innerHeight - (vv.height + vv.offsetTop))
-      setKb({ up: offset > 150, offset })   // >150px ⇒ keyboard (not just a URL bar)
+      // Reference height = the full (no-keyboard) viewport. On iOS window.innerHeight can
+      // shrink WITH the keyboard (breaking detection), while documentElement.clientHeight
+      // stays at the layout viewport — so take the larger of the two as the stable ref.
+      const ref = Math.max(window.innerHeight, document.documentElement.clientHeight)
+      const offset = Math.max(0, Math.round(ref - (vv.height + vv.offsetTop)))
+      setKb({ up: offset > 120, offset, vh: Math.round(vv.height), ot: Math.round(vv.offsetTop), ref, ih: window.innerHeight })
     }
     update()
     vv.addEventListener('resize', update)
@@ -206,14 +210,25 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     editor?.commands.focus()
   }
 
-  // On touch the footer behaves as a keyboard accessory bar (hidden until typing).
-  const isTouch = typeof navigator !== 'undefined'
-    && ((navigator.maxTouchPoints ?? 0) > 0 || window.matchMedia?.('(pointer: coarse)')?.matches === true)
+  // On a touch-ONLY device (phone/tablet) the footer behaves as a keyboard accessory bar
+  // (hidden until typing). "(pointer: coarse) and (hover: none)" excludes touchscreen
+  // laptops — they have a trackpad (hover), so the toolbar stays always-visible there.
+  const isTouch = typeof window !== 'undefined'
+    && window.matchMedia?.('(pointer: coarse) and (hover: none)')?.matches === true
   const toolbarHidden = isTouch && !kb.up
+
+  const kbDebug = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('kbdebug') === '1'
 
   return (
     <ComplianceContext.Provider value={compliance}>
       <div className="inkwave-editor-surface min-h-screen bg-white pt-16 pb-32 px-4">
+        {kbDebug && (
+          <div style={{ position: 'fixed', top: 0, left: 0, zIndex: 200, background: 'rgba(0,0,0,0.85)',
+                        color: '#5f5', font: '11px monospace', padding: '3px 6px', pointerEvents: 'none',
+                        whiteSpace: 'nowrap' }}>
+            touch:{String(isTouch)} up:{String(kb.up)} off:{kb.offset} vh:{kb.vh} ot:{kb.ot} ref:{kb.ref} ih:{kb.ih}
+          </div>
+        )}
         {/* Scroll container — slightly wider than text column */}
         <div ref={paperRef} className="mx-auto w-full max-w-[600px] md:max-w-[780px]"
           style={{
