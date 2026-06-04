@@ -190,34 +190,63 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
       acceptRef.current(c.synonyms[c.currentIdx], true)
     }
 
-    // Click + drag up/down cycles, ~20px per step (relative movementY, so it works
-    // wherever the drag started as long as a cycle is open and the button is held).
+    // Press + drag up/down cycles, ~20px per step. Works for both mouse (button
+    // held) and touch (finger down) — we track clientY deltas ourselves rather
+    // than movementY, which mobile browsers report unreliably on touch pointers.
+    // Releasing after a drag that moved the reel commits the word it landed on.
     const DRAG_STEP = 20
     let dragAccum = 0
-    let dragging = false
+    let stepped   = false           // did the reel actually advance during this press?
+    let lastY: number | null = null // non-null once a held drag is in progress
+    const stepDrag = (d: number) => { cycleBy(d); stepped = true }
     function onPointerMove(e: PointerEvent) {
-      if (e.pointerType !== 'mouse' || !(e.buttons & 1) || !cycleRef.current) return
-      if (!dragging && e.movementY !== 0) { dragging = true; edEl.style.userSelect = 'none' }
-      dragAccum += e.movementY
-      while (dragAccum <= -DRAG_STEP) { cycleBy(1);  dragAccum += DRAG_STEP }  // up → k
-      while (dragAccum >=  DRAG_STEP) { cycleBy(-1); dragAccum -= DRAG_STEP }  // down → j
+      if (!(e.buttons & 1) || !cycleRef.current) { lastY = null; return }
+      if (lastY === null) { lastY = e.clientY; edEl.style.userSelect = 'none'; return }
+      dragAccum += e.clientY - lastY
+      lastY = e.clientY
+      while (dragAccum <= -DRAG_STEP) { stepDrag(1);  dragAccum += DRAG_STEP }  // up → k
+      while (dragAccum >=  DRAG_STEP) { stepDrag(-1); dragAccum -= DRAG_STEP }  // down → j
     }
-    function onPointerUp() {
-      if (dragging) { dragging = false; edEl.style.userSelect = '' }
-      dragAccum = 0
+    function endDrag(accept: boolean) {
+      if (lastY !== null) edEl.style.userSelect = ''
+      // A drag that moved the reel commits on release; a stationary press (a plain
+      // click/tap that just opens the cycle) leaves it open for keyboard/tap input.
+      if (accept && stepped) {
+        const c = cycleRef.current
+        if (c) acceptRef.current(c.synonyms[c.currentIdx], false)
+      }
+      lastY = null; dragAccum = 0; stepped = false
     }
+    const onPointerUp     = () => endDrag(true)
+    const onPointerCancel = () => endDrag(false)
+    // Keep a touch drag from scrolling the document while it's steering the reel.
+    function onTouchMove(e: TouchEvent) { if (lastY !== null) e.preventDefault() }
 
     document.addEventListener('wheel', onWheel, { passive: false })
     document.addEventListener('contextmenu', onContextMenu)
     document.addEventListener('pointermove', onPointerMove)
     document.addEventListener('pointerup', onPointerUp)
+    document.addEventListener('pointercancel', onPointerCancel)
+    document.addEventListener('touchmove', onTouchMove, { passive: false })
     return () => {
       document.removeEventListener('wheel', onWheel)
       document.removeEventListener('contextmenu', onContextMenu)
       document.removeEventListener('pointermove', onPointerMove)
       document.removeEventListener('pointerup', onPointerUp)
+      document.removeEventListener('pointercancel', onPointerCancel)
+      document.removeEventListener('touchmove', onTouchMove)
     }
   }, [editor]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // While a cycle is open, suppress native touch-scroll on the editor so a finger
+  // drag cycles synonyms instead of scrolling the document. Restored on close.
+  useEffect(() => {
+    if (!cycle || !editor) return
+    const el = editor.view.dom as HTMLElement
+    const prev = el.style.touchAction
+    el.style.touchAction = 'none'
+    return () => { el.style.touchAction = prev }
+  }, [!!cycle]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!cycle) return
