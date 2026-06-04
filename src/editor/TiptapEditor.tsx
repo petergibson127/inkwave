@@ -184,7 +184,11 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
         {/* Scroll container — slightly wider than text column */}
         <div className="mx-auto w-full max-w-[600px] md:max-w-[780px]"
           style={{
-            filter: 'drop-shadow(0 8px 32px rgba(80,50,10,0.22)) drop-shadow(0 2px 6px rgba(80,50,10,0.18))',
+            // box-shadow (not filter: drop-shadow) so the absolutely-positioned
+            // cycle card rendered inside doesn't feed its pixels into the shadow —
+            // drop-shadow re-rasterises the whole parchment on every reel frame.
+            borderRadius: '8px',
+            boxShadow: '0 8px 32px rgba(80,50,10,0.22), 0 2px 6px rgba(80,50,10,0.18)',
           }}
         >
           {/* Top scroll head */}

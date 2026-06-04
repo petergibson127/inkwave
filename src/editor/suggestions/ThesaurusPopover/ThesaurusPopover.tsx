@@ -194,28 +194,50 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
     // held) and touch (finger down) — we track clientY deltas ourselves rather
     // than movementY, which mobile browsers report unreliably on touch pointers.
     // Releasing after a drag that moved the reel commits the word it landed on.
+    //
+    // Steps are coalesced into one setCycle per animation frame: touch pointermove
+    // can fire faster than the display refreshes, and a render-per-event janks the
+    // phone. baseIdx + netSteps is the source of truth for the landed-on slot, so
+    // the release accepts correctly regardless of React's render timing.
     const DRAG_STEP = 20
     let dragAccum = 0
-    let stepped   = false           // did the reel actually advance during this press?
     let lastY: number | null = null // non-null once a held drag is in progress
-    const stepDrag = (d: number) => { cycleBy(d); stepped = true }
+    let baseIdx  = 0                // currentIdx when this drag began
+    let netSteps = 0                // steps accumulated since drag began
+    let applied  = 0                // steps already pushed to React state
+    let rafId: number | null = null
+    function flush() {
+      rafId = null
+      const delta = netSteps - applied
+      if (delta !== 0) { cycleBy(delta); applied = netSteps }
+    }
     function onPointerMove(e: PointerEvent) {
       if (!(e.buttons & 1) || !cycleRef.current) { lastY = null; return }
-      if (lastY === null) { lastY = e.clientY; edEl.style.userSelect = 'none'; return }
+      if (lastY === null) {
+        lastY = e.clientY; baseIdx = cycleRef.current.currentIdx
+        netSteps = 0; applied = 0; edEl.style.userSelect = 'none'; return
+      }
       dragAccum += e.clientY - lastY
       lastY = e.clientY
-      while (dragAccum <= -DRAG_STEP) { stepDrag(1);  dragAccum += DRAG_STEP }  // up → k
-      while (dragAccum >=  DRAG_STEP) { stepDrag(-1); dragAccum -= DRAG_STEP }  // down → j
+      while (dragAccum <= -DRAG_STEP) { netSteps += 1; dragAccum += DRAG_STEP }  // up → k
+      while (dragAccum >=  DRAG_STEP) { netSteps -= 1; dragAccum -= DRAG_STEP }  // down → j
+      if (netSteps !== applied && rafId === null) rafId = requestAnimationFrame(flush)
     }
     function endDrag(accept: boolean) {
+      if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null }
       if (lastY !== null) edEl.style.userSelect = ''
       // A drag that moved the reel commits on release; a stationary press (a plain
       // click/tap that just opens the cycle) leaves it open for keyboard/tap input.
-      if (accept && stepped) {
+      if (accept && netSteps !== 0) {
         const c = cycleRef.current
-        if (c) acceptRef.current(c.synonyms[c.currentIdx], false)
+        if (c) {
+          const idx = (((baseIdx + netSteps) % CYCLE_SIZE) + CYCLE_SIZE) % CYCLE_SIZE
+          acceptRef.current(c.synonyms[idx], false)
+        }
+      } else {
+        flush()  // cancel / no-accept: settle the reel to its final dragged position
       }
-      lastY = null; dragAccum = 0; stepped = false
+      lastY = null; dragAccum = 0; netSteps = 0; applied = 0
     }
     const onPointerUp     = () => endDrag(true)
     const onPointerCancel = () => endDrag(false)
@@ -308,10 +330,15 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
           top: (cardH - rowH) / 2 + d * rowH,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           whiteSpace: 'nowrap', overflow: 'hidden', cursor: 'pointer',
-          fontSize: center ? fsz : fsz * 0.92,
+          fontSize: fsz,
+          transform: center ? 'scale(1)' : 'scale(0.92)',
+          transformOrigin: 'center',
           color: isOrig ? '#5c2d8a' : '#9b5ccc',
           opacity,
-          transition: 'top 150ms ease, opacity 150ms ease, font-size 150ms ease',
+          // Animate only composited props (top/opacity/transform) — a font-size
+          // transition forces per-frame text relayout and janks the slide on mobile.
+          transition: 'top 150ms ease, opacity 150ms ease, transform 150ms ease',
+          WebkitTapHighlightColor: 'transparent',
         }}>
         {displayFor(word, mobile)}
       </div>,
@@ -330,7 +357,7 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
         style={{ top: cardTop, left, width: Math.ceil(rect.width), height: cardH, boxSizing: 'border-box',
                  fontFamily: cs.fontFamily, fontSize: fsz, overflow: 'hidden',
                  background: 'white', border: '1px solid rgba(92, 45, 138, 0.75)', borderRadius: '10px',
-                 boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+                 boxShadow: '0 1px 4px rgba(0,0,0,0.06)', WebkitTapHighlightColor: 'transparent' }}>
         {rows}
       </div>
     </>
