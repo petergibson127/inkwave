@@ -56,6 +56,7 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
   const rowHRef   = useRef(20)             // current row height in px (from geometry)
   const engagedRef = useRef(false)         // has the reel reached a non-original slot this session?
   const openedByPointerRef = useRef(false) // did the in-flight press just open the cycle? (don't commit on its release)
+  const draggingRef = useRef(false)        // pointer is held down and steering the reel
 
   // True while the reel is actually scrolling — drives the "original" marker, which
   // only shows in motion. Set on every reel frame; a short idle timer clears it.
@@ -65,11 +66,19 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
   function cancelAnim() {
     if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
   }
+  // Turn the "moving" flag off once the reel is genuinely at rest — but NOT while a drag
+  // is held (even paused/stationary) or an animation is running, so a slow drag never
+  // blinks the marker off between pointer-move events.
+  function scheduleMovingOff() {
+    if (movingTimerRef.current) clearTimeout(movingTimerRef.current)
+    movingTimerRef.current = setTimeout(() => {
+      if (!draggingRef.current && rafRef.current === null) setMoving(false)
+    }, 120)
+  }
   function pushReel() {
     if (!engagedRef.current && Math.round(reelRef.current) !== 0) engagedRef.current = true
     setMoving(true)
-    if (movingTimerRef.current) clearTimeout(movingTimerRef.current)
-    movingTimerRef.current = setTimeout(() => setMoving(false), 110)
+    scheduleMovingOff()
     setCycle(c => c ? { ...c, reelPos: reelRef.current } : c)
   }
 
@@ -344,10 +353,11 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
       lastY = null                                   // a drag begins on the first move
     }
     function onPointerMove(e: PointerEvent) {
-      if (!(e.buttons & 1) || !cycleRef.current) { lastY = null; return }
+      if (!(e.buttons & 1) || !cycleRef.current) { lastY = null; draggingRef.current = false; return }
       if (lastY === null) {                          // drag begins — grab any in-flight momentum
         cancelAnim()
         lastY = e.clientY; lastT = e.timeStamp; velRef.current = 0
+        draggingRef.current = true; setMoving(true)   // held + steering: keep the marker lit
         return
       }
       const rowH = rowHRef.current || 1
@@ -369,6 +379,8 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
     function onPointerUp(e: PointerEvent) {
       const wasDragging = lastY !== null
       lastY = null
+      draggingRef.current = false
+      scheduleMovingOff()   // released: let the marker fade out once the reel rests
       const opened = openedByPointerRef.current
       openedByPointerRef.current = false
       const c = cycleRef.current
@@ -401,8 +413,10 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
       }
     }
     function onPointerCancel() {
-      if (lastY === null) return
-      lastY = null; fling(velRef.current)
+      const wasDragging = lastY !== null
+      lastY = null; draggingRef.current = false
+      if (wasDragging) fling(velRef.current)
+      scheduleMovingOff()
     }
     // Suppress text-selection (highlighting) anywhere while a cycle is open — e.g. a
     // second press-and-drag away from the word would otherwise select editor text.
