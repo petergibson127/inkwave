@@ -27,9 +27,24 @@ export function CaretGutter(
 
   function place(e: ReactPointerEvent) {
     e.preventDefault() // we set the caret ourselves; suppress the default margin-click
-    const rect = editor.view.dom.getBoundingClientRect()
-    const at = editor.view.posAtCoords({ left: rect.left + 2, top: e.clientY })
-    if (at) editor.chain().focus().setTextSelection(at.pos).run()
+    const view = editor.view
+    const rect = view.dom.getBoundingClientRect()
+    // posAtCoords maps any y in the (tall, 2.5-line-height) line band to the right line.
+    const at = view.posAtCoords({ left: rect.left + 2, top: e.clientY })
+    if (!at) return
+
+    // Set the document position (also focuses). This alone renders a wrap-boundary caret
+    // with "upstream" affinity on WebKit — i.e. at the END of the previous line.
+    editor.chain().focus().setTextSelection(at.pos).run()
+
+    // So re-point the DOM caret at the *downstream* side of the same position
+    // (domAtPos(pos, 1) = the content that follows it, which is on the new line). The PM
+    // state is unchanged, so PM won't re-render and clobber it; the caret now sits on the
+    // line the writer tapped beside. Harmless for non-boundary positions.
+    try {
+      const dp = view.domAtPos(at.pos, 1)
+      window.getSelection()?.collapse(dp.node, dp.offset)
+    } catch { /* domAtPos can throw at atom boundaries — keep the upstream caret */ }
   }
 
   return (
