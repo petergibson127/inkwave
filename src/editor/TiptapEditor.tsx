@@ -12,6 +12,8 @@ import { CycleHintPanel } from './suggestions/CycleHintPanel'
 import { prefetchSynonyms } from './suggestions/thesaurus'
 import { LimitSelector } from '../components/LimitSelector'
 import { OptionsMenu } from '../components/OptionsMenu'
+import { StyleMenu, DEFAULT_TEXT_STYLE, type TextStyle } from '../components/StyleMenu'
+import { GuideMenu } from '../components/GuideMenu'
 import { ComplianceContext, useComplianceProvider } from '../scas/compliance'
 
 interface TiptapEditorProps {
@@ -34,6 +36,8 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   // screen for writing; it returns when the keyboard is dismissed. Editor focus is the
   // reliable "keyboard up" signal on iOS.
   const [editorFocused, setEditorFocused] = useState(false)
+  // User-chosen typography (font / size / alignment), applied to the editor DOM.
+  const [textStyle, setTextStyle] = useState<TextStyle>(DEFAULT_TEXT_STYLE)
 
   // Ref to the relative container div — passed to ThesaurusPopover for accurate positioning.
   const containerRef = useRef<HTMLDivElement>(null)
@@ -145,6 +149,16 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     editorRef.current = editor
   }, [editor])
 
+  // Apply the user's typography to the editor DOM (inline styles override .ProseMirror
+  // CSS; text-align cascades to the paragraphs).
+  useEffect(() => {
+    const dom = editor?.view.dom as HTMLElement | undefined
+    if (!dom) return
+    dom.style.fontFamily = textStyle.font
+    dom.style.fontSize = textStyle.size
+    dom.style.textAlign = textStyle.align
+  }, [editor, textStyle])
+
   // Track the container's right edge in viewport coords so CycleHintPanel
   // can sit flush against it at any window size or zoom level.
   useEffect(() => {
@@ -248,7 +262,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
           style={{ paddingBottom: isTouch ? 'env(safe-area-inset-bottom)' : '1rem' }}
         >
           <div
-            className="pointer-events-auto flex items-center gap-4 bg-white px-4 py-2 shadow-sm"
+            className={`pointer-events-auto flex items-center bg-white px-4 py-2 shadow-sm ${isTouch ? 'w-full justify-between' : 'gap-4'}`}
             style={{
               border: '1px solid rgba(92, 45, 138, 0.75)',
               borderRadius: isTouch ? '15px 15px 0 0' : '15px',
@@ -270,7 +284,8 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
               />
               hints
             </label>
-            <span className="w-px h-5 bg-stone-200" aria-hidden="true" />
+            <StyleMenu style={textStyle} onChange={patch => setTextStyle(s => ({ ...s, ...patch }))} />
+            <GuideMenu />
             <OptionsMenu paperRight={paperRight} />
           </div>
         </div>
