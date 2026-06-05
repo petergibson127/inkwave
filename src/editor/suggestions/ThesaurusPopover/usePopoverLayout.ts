@@ -93,7 +93,10 @@ export function usePopoverLayout(
 
       // Slot 0 is the ORIGINAL word (lookupWord = the managed slot's original, or the
       // word itself when unmanaged), so a managed word re-offers the original's list.
-      const { synonyms, minWidth } = buildSynonyms(lookupWord, candidates, font, rect.width)
+      // Match the flagged word's leading case: a capitalised word keeps its capital
+      // through every slot (and on commit).
+      const capitalize = /^[A-Z]/.test(displayWord)
+      const { synonyms, minWidth } = buildSynonyms(lookupWord, candidates, font, rect.width, capitalize)
       const pe = (fe.closest('p') ?? pEl) as Element | null
       // In-place mode expands the word to minWidth and compresses the surrounding line to
       // absorb it. Overlay mode does neither — the opaque card (sized to minWidth) just

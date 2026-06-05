@@ -11,13 +11,22 @@ export function displayFor(s: string, mobileScale = 1): React.ReactNode {
   return <span style={style}>⌫</span>
 }
 
+// Capitalises the first letter, leaving the rest untouched ("use" → "Use").
+export function capitalizeFirst(w: string): string {
+  return w ? w.charAt(0).toUpperCase() + w.slice(1) : w
+}
+
 // Fills all CYCLE_SIZE slots from [original, ...synonyms], cycling if short.
 // No delete slot — deletion is done by double-clicking the word in the editor.
+// When `capitalize` is set every slot gets a capital first letter, so a flagged word
+// written with a leading capital keeps it through the whole reel (and on commit).
 // Returns the slot array and the card min-width (widest synonym + horizontal padding).
 export function buildSynonyms(
   displayWord: string, candidates: string[], font: string, wordWidth: number,
+  capitalize = false,
 ): { synonyms: string[]; minWidth: number } {
-  const pool     = [displayWord, ...candidates]
+  const cap      = capitalize ? capitalizeFirst : (w: string) => w
+  const pool     = [displayWord, ...candidates].map(cap)
   const synonyms = Array.from({ length: CYCLE_SIZE }, (_, i) => pool[i % pool.length])
   const minWidth = Math.max(
     wordWidth,
