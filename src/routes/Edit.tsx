@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { TiptapEditor } from '../editor/TiptapEditor'
 import type { InkwaveDocument } from '../types/document'
+import { DEFAULT_TEXT_STYLE } from '../types/document'
 import { loadDocument, emptyTiptapDoc } from '../storage/opfs'
 import { listMeta } from '../storage/indexeddb'
 
@@ -19,12 +20,13 @@ function newDocument(): InkwaveDocument {
     schemaVersion: '0.1.0',
     scasLimitN: 'infinite',
     scasSessionSeed: uuidv4(),
+    textStyle: DEFAULT_TEXT_STYLE,
   }
 }
 
-// Fill in Week 2 fields for documents saved before they existed.
+// Fill in fields for documents saved before they existed.
 function migrateDocument(doc: InkwaveDocument): InkwaveDocument {
-  return Object.assign({ scasLimitN: 'infinite', scasSessionSeed: uuidv4() }, doc)
+  return Object.assign({ scasLimitN: 'infinite', scasSessionSeed: uuidv4(), textStyle: DEFAULT_TEXT_STYLE }, doc)
 }
 
 export function Edit() {

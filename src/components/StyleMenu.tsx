@@ -1,19 +1,8 @@
 // StyleMenu — "style" toolbar button with a drop-up panel for font / size / alignment.
-// The chosen TextStyle is applied to the editor by the parent.
+// The chosen TextStyle is applied to the editor and persisted in the document by the parent.
 
 import { useEffect, useRef, useState } from 'react'
-
-export interface TextStyle {
-  font: string                              // CSS font-family
-  size: string                              // CSS font-size
-  align: 'left' | 'center' | 'justify'
-}
-
-export const DEFAULT_TEXT_STYLE: TextStyle = {
-  font: "'IM Fell DW Pica', 'EB Garamond', Georgia, serif",
-  size: '1.125rem',
-  align: 'left',
-}
+import type { TextStyle } from '../types/document'
 
 const INK = '#5c2d8a'
 
