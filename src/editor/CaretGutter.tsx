@@ -37,14 +37,33 @@ export function CaretGutter(
     // with "upstream" affinity on WebKit — i.e. at the END of the previous line.
     editor.chain().focus().setTextSelection(at.pos).run()
 
-    // So re-point the DOM caret at the *downstream* side of the same position
-    // (domAtPos(pos, 1) = the content that follows it, which is on the new line). The PM
-    // state is unchanged, so PM won't re-render and clobber it; the caret now sits on the
-    // line the writer tapped beside. Harmless for non-boundary positions.
+    // Fix that affinity: re-place the DOM caret from a POINT on the downstream line's
+    // glyph. coordsAtPos(pos, 1) gives that line's coordinates; a Range built from a point
+    // there carries the line's affinity (the same path a real click takes), so the caret
+    // renders on the tapped line. This works regardless of node structure — unlike
+    // domAtPos, which only disambiguates when the next line starts a new text node.
+    type CaretDoc = Document & {
+      caretRangeFromPoint?: (x: number, y: number) => Range | null
+      caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null
+    }
     try {
-      const dp = view.domAtPos(at.pos, 1)
-      window.getSelection()?.collapse(dp.node, dp.offset)
-    } catch { /* domAtPos can throw at atom boundaries — keep the upstream caret */ }
+      const c = view.coordsAtPos(at.pos, 1)
+      const gx = c.left + 2, gy = (c.top + c.bottom) / 2
+      const d = document as CaretDoc
+      let range: Range | null = null
+      if (d.caretRangeFromPoint) {
+        range = d.caretRangeFromPoint(gx, gy)
+      } else if (d.caretPositionFromPoint) {
+        const p = d.caretPositionFromPoint(gx, gy)
+        if (p) { range = document.createRange(); range.setStart(p.offsetNode, p.offset) }
+      }
+      if (range && view.dom.contains(range.startContainer)) {
+        range.collapse(true)
+        const sel = window.getSelection()
+        sel?.removeAllRanges()
+        sel?.addRange(range)
+      }
+    } catch { /* coords/caret APIs unavailable — keep the upstream caret */ }
   }
 
   return (
