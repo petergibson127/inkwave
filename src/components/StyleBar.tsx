@@ -30,10 +30,11 @@ function AlignIcon({ a }: { a: Align }) {
   )
 }
 
-export function StyleBar({ editor }: { editor: Editor }) {
+export function StyleBar({ editor, onActivity }: { editor: Editor; onActivity?: () => void }) {
   const [, force] = useState(0)
   const [fontOpen, setFontOpen] = useState(false)
   const fontRef = useRef<HTMLDivElement>(null)
+  const ping = () => onActivity?.()
 
   // Re-render when the selection/content changes so the controls reflect the cursor.
   useEffect(() => {
@@ -55,12 +56,13 @@ export function StyleBar({ editor }: { editor: Editor }) {
   const curSize = parseInt(ts.fontSize ?? '', 10) || BASE_SIZE
   const curAlign: Align = (['left', 'center', 'justify'] as const).find(a => editor.isActive({ textAlign: a })) ?? 'left'
 
-  const setFont  = (css: string) => { editor.chain().setFontFamily(css).run(); setFontOpen(false) }
-  const setSize  = (px: number) => { if (px >= 8 && px <= 120) editor.chain().setMark('textStyle', { fontSize: `${px}px` }).run() }
-  const setAlign = (a: Align) => editor.chain().setTextAlign(a).run()
+  const setFont  = (css: string) => { ping(); editor.chain().setFontFamily(css).run(); setFontOpen(false) }
+  const setSize  = (px: number) => { ping(); if (px >= 8 && px <= 120) editor.chain().setMark('textStyle', { fontSize: `${px}px` }).run() }
+  const setAlign = (a: Align) => { ping(); editor.chain().setTextAlign(a).run() }
 
   // Apply the current selection's style (font / size / align) to the whole document.
   const applyToAll = () => {
+    ping()
     const { from, to } = editor.state.selection
     const chain = editor.chain().selectAll()
     if (ts.fontFamily) chain.setFontFamily(ts.fontFamily)

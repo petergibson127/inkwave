@@ -43,6 +43,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   // Formatting (font/size/align) is per-selection via marks, persisted in the content.
   const [styleBarOpen, setStyleBarOpen] = useState(false)
   const [selectionEmpty, setSelectionEmpty] = useState(true)
+  const styleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Ref to the relative container div — passed to ThesaurusPopover for accurate positioning.
   const containerRef = useRef<HTMLDivElement>(null)
@@ -225,8 +226,27 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   // while the keyboard is up. Touchscreen laptops keep it (they report hover via trackpad).
   const isTouch = typeof window !== 'undefined'
     && window.matchMedia?.('(pointer: coarse) and (hover: none)')?.matches === true
-  // Hide while typing (cursor only); keep it up when text is selected so it's formattable.
-  const hideToolbar = isTouch && editorFocused && selectionEmpty
+
+  // A button-opened style bar auto-closes after π seconds of inactivity; each style
+  // interaction (via onActivity) restarts the timer. Bars shown because text is
+  // selected stay put (driven by the selection, not this flag).
+  function armStyleTimer() {
+    if (styleTimerRef.current) clearTimeout(styleTimerRef.current)
+    styleTimerRef.current = setTimeout(() => setStyleBarOpen(false), 3141.5)
+  }
+  function toggleStyleBar() {
+    const next = !styleBarOpen
+    setStyleBarOpen(next)
+    if (next) armStyleTimer()
+    else if (styleTimerRef.current) { clearTimeout(styleTimerRef.current); styleTimerRef.current = null }
+  }
+
+  // The style bar pops up whenever text is selected (flush above the keyboard) or when
+  // opened with the STYLE button. The main row hides while the editor is focused on touch
+  // (typing or selecting), so a selection brings up the style bar alone.
+  const showStyle  = !!editor && (styleBarOpen || !selectionEmpty)
+  const showMain   = !isTouch || !editorFocused
+  const barVisible = showStyle || showMain
 
   return (
     <ComplianceContext.Provider value={compliance}>
@@ -277,19 +297,21 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
             style={{
               border: '1px solid rgba(92, 45, 138, 0.75)',
               borderRadius: isTouch ? '15px 15px 0 0' : '15px',
-              opacity: hideToolbar ? 0 : 1,
-              pointerEvents: hideToolbar ? 'none' : 'auto',
+              opacity: barVisible ? 1 : 0,
+              pointerEvents: barVisible ? 'auto' : 'none',
               transition: 'opacity 160ms ease',
             }}
           >
-            {/* Flat style sub-bar, flush above the main controls */}
-            {styleBarOpen && editor && (
-              <div className="flex items-center px-4 py-2 border-b border-stone-200">
-                <StyleBar editor={editor} />
+            {/* Flat style sub-bar — flush above the keyboard (when text is selected) or
+                above the main controls (when opened with the STYLE button) */}
+            {showStyle && editor && (
+              <div className={`flex items-center px-4 py-2 ${showMain ? 'border-b border-stone-200' : ''}`}>
+                <StyleBar editor={editor} onActivity={armStyleTimer} />
               </div>
             )}
 
             {/* Main toolbar row */}
+            {showMain && (
             <div className={`flex items-center px-4 py-2 ${isTouch ? 'justify-between' : 'gap-4'}`}>
               <LimitSelector
                 value={doc.scasLimitN}
@@ -307,7 +329,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
               <button
                 type="button"
                 aria-pressed={styleBarOpen}
-                onClick={() => setStyleBarOpen(o => !o)}
+                onClick={toggleStyleBar}
                 className={`uppercase tracking-wide text-xs transition-colors font-serif ${styleBarOpen ? 'text-[#5c2d8a]' : 'text-stone-400 hover:text-[#5c2d8a]'}`}
               >
                 style
@@ -315,6 +337,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
               <GuideMenu />
               <OptionsMenu paperRight={paperRight} />
             </div>
+            )}
           </div>
         </div>
       </div>
