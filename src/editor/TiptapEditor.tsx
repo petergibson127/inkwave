@@ -12,6 +12,7 @@ import { RedHighlightExtension, SCAS_HINT_META } from './extensions/RedHighlight
 import type { HintState } from './extensions/RedHighlightExtension'
 import { ScasSlotMark } from './extensions/ScasSlotMark'
 import { ThesaurusPopover } from './suggestions/ThesaurusPopover'
+import { CaretGutter } from './CaretGutter'
 import { CycleHintPanel } from './suggestions/CycleHintPanel'
 import { prefetchSynonyms } from './suggestions/thesaurus'
 import { LimitSelector } from '../components/LimitSelector'
@@ -268,6 +269,9 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
           <div className="scroll-paper relative px-2 pt-10 pb-24">
             <div className="mx-auto w-full max-w-[560px] md:max-w-[720px] relative" ref={containerRef}>
               <EditorContent editor={editor} />
+              {editor && (
+                <CaretGutter editor={editor} containerEl={containerRef as RefObject<HTMLDivElement>} />
+              )}
               {editor && (
                 <ThesaurusPopover
                   editor={editor}
