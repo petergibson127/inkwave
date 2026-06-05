@@ -44,6 +44,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   // Formatting (font/size/align) is per-selection via marks, persisted in the content.
   const [styleBarOpen, setStyleBarOpen] = useState(false)
   const [selectionEmpty, setSelectionEmpty] = useState(true)
+  const [styleScrollHidden, setStyleScrollHidden] = useState(false)
   const styleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Ref to the relative container div — passed to ThesaurusPopover for accurate positioning.
@@ -165,11 +166,26 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   useEffect(() => {
     if (!editor) return
     const upd = () => setSelectionEmpty(editor.state.selection.empty)
+    // A real selection change re-arms the style bar after a scroll dismissed it.
+    const onSel = () => { const empty = editor.state.selection.empty; setSelectionEmpty(empty); if (!empty) setStyleScrollHidden(false) }
     upd()
-    editor.on('selectionUpdate', upd)
+    editor.on('selectionUpdate', onSel)
     editor.on('transaction', upd)
-    return () => { editor.off('selectionUpdate', upd); editor.off('transaction', upd) }
+    return () => { editor.off('selectionUpdate', onSel); editor.off('transaction', upd) }
   }, [editor])
+
+  // Scrolling down dismisses the style bar (button- or selection-driven), on phone and
+  // desktop. It re-appears on the next selection change or STYLE press, not on scroll-up.
+  useEffect(() => {
+    let lastY = window.scrollY
+    const onScroll = () => {
+      const y = window.scrollY
+      if (y > lastY + 4) { setStyleScrollHidden(true); setStyleBarOpen(false) }
+      lastY = y
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
 
   // Track the container's right edge in viewport coords so CycleHintPanel
   // can sit flush against it at any window size or zoom level.
@@ -238,14 +254,14 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   function toggleStyleBar() {
     const next = !styleBarOpen
     setStyleBarOpen(next)
-    if (next) armStyleTimer()
+    if (next) { setStyleScrollHidden(false); armStyleTimer() }
     else if (styleTimerRef.current) { clearTimeout(styleTimerRef.current); styleTimerRef.current = null }
   }
 
   // The style bar pops up whenever text is selected (flush above the keyboard) or when
   // opened with the STYLE button. The main row hides while the editor is focused on touch
   // (typing or selecting), so a selection brings up the style bar alone.
-  const showStyle  = !!editor && (styleBarOpen || !selectionEmpty)
+  const showStyle  = !!editor && (styleBarOpen || !selectionEmpty) && !styleScrollHidden
   const showMain   = !isTouch || !editorFocused
   const barVisible = showStyle || showMain
 
