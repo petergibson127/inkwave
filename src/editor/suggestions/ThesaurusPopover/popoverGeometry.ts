@@ -70,32 +70,46 @@ export function computeLineCompressionRange(
 
   if (nBefore + nAfter === 0) return null
 
-  const slack = Math.max(0, paraEl.getBoundingClientRect().right - naturalLineRight)
+  const paraRight = paraEl.getBoundingClientRect().right
+  const slack = Math.max(0, paraRight - naturalLineRight)
   const exp   = Math.max(0, Math.ceil(minWidth) - naturalWidth)
-  const net   = exp > slack ? exp - slack + 2 : 0
-  if (net === 0) return null
+  if (exp === 0) return null
+  const half  = exp / 2   // ideal: reserve half the expansion on each side of the word
 
   const fe  = editor.view.dom.querySelector('.scas-focused') as HTMLElement | null
   const fsz = parseFloat(fe ? window.getComputedStyle(fe).fontSize : '18') || 18
 
-  // The first word on a wrapped line is excluded from compression — a widget at the
-  // line start offsets it instead, keeping the focused word anchored to its original x.
-  // On the very first paragraph line skip the widget (nothing above to reflow).
+  // Room between the word's natural right edge and the paragraph's right edge. (fe carries
+  // min-width:naturalWidth at this point, so its right edge is the natural right edge.)
+  const wordRight = fe ? fe.getBoundingClientRect().right : naturalLineRight
+  const rightRoom = Math.max(0, paraRight - wordRight)
+  // Slide the box left by `half` (centred) when there's at least half a room on the right;
+  // when the word hugs the right edge, slide it further so the expanded box still fits the
+  // line instead of wrapping. (A right-edge word then sits slightly left of centre — the
+  // unavoidable edge case — but never wraps.)
+  const beforeShift = Math.min(exp, Math.max(half, exp - rightRoom))
+
+  // Keep the line's first word uncompressed (squeezing it would jitter the line start);
+  // count its chars so the before-compression starts just after it.
   let fwc = 0
   if (lineFrom !== null) {
-    let isFirst = false
-    try { isFirst = editor.state.doc.resolve(lineFrom).parentOffset === 0 } catch {}
-    if (!isFirst) {
-      const dz = editor.state.doc.content.size
-      for (let p = lineFrom; p < wordFrom && p + 1 <= dz; p++) {
-        try { const c = editor.state.doc.textBetween(p, p + 1); if (/[ \t\xa0]/.test(c)) break; fwc++ }
-        catch { break }
-      }
+    const dz = editor.state.doc.content.size
+    for (let p = lineFrom; p < wordFrom && p + 1 <= dz; p++) {
+      try { const c = editor.state.doc.textBetween(p, p + 1); if (/[ \t\xa0]/.test(c)) break; fwc++ }
+      catch { break }
     }
   }
+  const firstWordEnd = (lineFrom ?? wordFrom) + fwc
 
-  const nCompress = nBefore + nAfter - fwc
-  if (nCompress <= 0) return null
-  const lsEm = net / nCompress / fsz
-  return { from: lineFrom ?? wordFrom, to: lineTo ?? wordTo, letterSpacingEm: lsEm, offsetLeft: fwc * lsEm * fsz }
+  // BEFORE: compress [firstWordEnd, wordFrom] by `beforeShift` so the word's box — and the
+  // before-neighbour — slide left by that much, centring (or fitting) the reserved box.
+  const nBeforeComp = nBefore - fwc
+  const lsBeforeEm  = nBeforeComp > 0 ? beforeShift / nBeforeComp / fsz : 0
+  // AFTER: the box pushes the after-text right by (exp - beforeShift); compress it only by
+  // the part that exceeds the line's right-hand slack — the rest extends into the slack.
+  const afterPush   = Math.max(0, (exp - beforeShift) - slack)
+  const lsAfterEm   = nAfter > 0 ? afterPush / nAfter / fsz : 0
+
+  if (lsBeforeEm === 0 && lsAfterEm === 0) return null
+  return { from: lineFrom ?? wordFrom, firstWordEnd, to: lineTo ?? wordTo, lsBeforeEm, lsAfterEm }
 }

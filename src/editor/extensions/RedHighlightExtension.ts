@@ -4,6 +4,7 @@ import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { isInVocab } from '../../scas/ranking'
 import type { InkwaveDocument } from '../../types/document'
+import type { LineRange } from '../suggestions/ThesaurusPopover/popoverConstants'
 
 export const RED_HIGHLIGHT_KEY = new PluginKey<DecorationSet>('redHighlight')
 
@@ -17,10 +18,10 @@ export interface HintState {
   focusedPos: number | null
   showHints: boolean
   focusedMinWidth: number | null
-  // Letter-spacing compression applied to chars around the focused word to
-  // absorb its min-width expansion in-place. offsetLeft compensates for the
-  // space lost before the word, keeping it anchored to its original position.
-  lineCompressionRange: { from: number; to: number; letterSpacingEm: number; offsetLeft: number } | null
+  // Symmetric letter-spacing compression around the focused word that centres its
+  // reserved box on the word (see LineRange) — before-side slides the box left by half
+  // the expansion, after-side absorbs the rest of the rightward push past the slack.
+  lineCompressionRange: LineRange | null
 }
 
 interface RedHighlightOptions {
@@ -160,26 +161,20 @@ function buildDecorations(
     decorations.push(Decoration.inline(from, to, attrs))
   }
 
-  // Line compression: tighten letter-spacing on both sides of the focused word
-  // to absorb its min-width expansion. A widget at the line start offsets the
-  // leftward drift from compressing before-word chars.
+  // Symmetric line compression: squeeze the before-side (after the line's first word) to
+  // slide the focused word's reserved box left by half its expansion — centring it on the
+  // word — and squeeze the after-side only by the right-push that exceeds the slack.
   const { lineCompressionRange } = hintState
   if (lineCompressionRange && focusedPos !== null) {
     const fw = redWords.find(rw => rw.from === focusedPos)
     if (fw) {
-      const { from: lf, to: lt, letterSpacingEm: ls, offsetLeft: ol } = lineCompressionRange
-      const style = `letter-spacing: -${ls.toFixed(4)}em`
-      if (lf < fw.from) {
-        decorations.push(Decoration.inline(lf, fw.from, { style }))
-        if (ol > 0.5) {
-          decorations.push(Decoration.widget(lf, () => {
-            const s = document.createElement('span')
-            s.style.cssText = `display:inline-block;width:${ol.toFixed(2)}px;pointer-events:none;user-select:none`
-            return s
-          }))
-        }
+      const { firstWordEnd: fwe, to: lt, lsBeforeEm, lsAfterEm } = lineCompressionRange
+      if (lsBeforeEm > 0 && fwe < fw.from) {
+        decorations.push(Decoration.inline(fwe, fw.from, { style: `letter-spacing: -${lsBeforeEm.toFixed(4)}em` }))
       }
-      if (fw.to < lt) decorations.push(Decoration.inline(fw.to, lt, { style }))
+      if (lsAfterEm > 0 && fw.to < lt) {
+        decorations.push(Decoration.inline(fw.to, lt, { style: `letter-spacing: -${lsAfterEm.toFixed(4)}em` }))
+      }
     }
   }
 

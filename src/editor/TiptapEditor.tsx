@@ -10,6 +10,7 @@ import { scheduleSave } from '../storage/opfs'
 import { upsertMeta } from '../storage/indexeddb'
 import { RedHighlightExtension, SCAS_HINT_META } from './extensions/RedHighlightExtension'
 import type { HintState } from './extensions/RedHighlightExtension'
+import type { LineRange } from './suggestions/ThesaurusPopover/popoverConstants'
 import { ScasSlotMark } from './extensions/ScasSlotMark'
 import { ThesaurusPopover } from './suggestions/ThesaurusPopover'
 import { CaretGutter } from './CaretGutter'
@@ -73,7 +74,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   function handleHintChange(
     pos: number | null,
     minWidth?: number | null,
-    lineRange?: { from: number; to: number; letterSpacingEm: number; offsetLeft: number } | null,
+    lineRange?: LineRange | null,
   ) {
     hintStateRef.current = {
       ...hintStateRef.current,
