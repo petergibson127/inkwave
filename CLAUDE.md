@@ -30,6 +30,17 @@ Read in this order:
 
 Do **not** build against the older v3/v4 architecture docs (audit trail only).
 
+## ⚠ Pending: iOS fixes briefing from sandbox-1 (2026-06-07)
+
+A parallel auditor session fixed the iOS popover-drag breakdown (compression
+mangling + scroll-suppression failure), the bottom-toolbar tap bug (partial), and
+a dev-poisoning service-worker bug, on branch `sandbox-1`. **Read
+`sandbox1-ios-fixes-briefing.md` in the canonical docs folder above and implement
+the equivalents on master** — it specifies each fix by mechanism/invariant so it
+can be re-derived in master's current code shape (no merge needed). Fixes 1–4
+and 6 are verified on-device and safe to take now; fix 5 has a residual repro
+still under investigation in the sandbox. Delete this section once ported.
+
 ## Tech stack
 
 Vite + React 18 + TypeScript + Tailwind 3 + Tiptap (on ProseMirror) + OPFS/IndexedDB.

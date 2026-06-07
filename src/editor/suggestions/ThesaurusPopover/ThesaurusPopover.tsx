@@ -483,16 +483,20 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
     const rect = focusedEl.getBoundingClientRect()
     const cs   = window.getComputedStyle(focusedEl)
     const fsz  = parseFloat(cs.fontSize) || 18
-    const left = rect.left - cRect.left
 
-    // Align the reel so the original word lands EXACTLY on its pre-click x. The box's left
-    // is its natural left minus however far it actually slid (the browser's real letter-
-    // spacing, not the intended amount) — so measure that slide directly: alignF = (naturalLeft
-    // - boxLeft) / exp. This is sub-pixel exact (no 1-3px drift), and clamps to [0,1] so the
-    // word stays inside the card if the line reflowed it. (cycle.alignFraction is the intent,
-    // kept for reference.) f→0 left-aligned, .5 centred, →1 right-aligned: the continuum.
-    const exp    = Math.max(1, cycle.minWidth - cycle.naturalWidth)
-    const alignF = Math.max(0, Math.min(1, (cycle.naturalLeft - rect.left) / exp))
+    // Anchor the reel to the word's KNOWN natural x (measured before expansion), using the
+    // INTENDED slide — never the rendered box. The expanded box's left is naturalLeft minus
+    // however far the browser actually paints the negative letter-spacing, which is font-
+    // specific and sub-pixel-variable; reading it back made the original word drift, and when
+    // the real slide exceeded `exp` the [0,1] clamp parked the word LEFT of its left neighbour
+    // (the serif "prehensile|tail" overlap). Both naturalLeft and alignFraction (= intended
+    // beforeShift/exp) are known up front, so placing the card at naturalLeft − alignF·exp
+    // lands the original word on its pre-click x EXACTLY, in any font, with no clamp.
+    // f→0 left-aligned, .5 centred, →1 right-aligned: the continuum, still intact.
+    const exp    = Math.max(0, cycle.minWidth - cycle.naturalWidth)
+    const alignF = exp > 0 ? cycle.alignFraction : 0
+    const cardW  = Math.max(Math.ceil(cycle.minWidth), Math.ceil(rect.width))
+    const left   = (cycle.naturalLeft - cRect.left) - alignF * exp
 
     const textNode = focusedEl.firstChild
     let textMid: number
@@ -509,7 +513,7 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
     return {
       fsz, left, rowH, cardH, alignF,
       cardTop: textMid - cardH / 2,           // current row centred on the focused word
-      width: Math.ceil(rect.width),
+      width: cardW,                           // reserved width (known min-width, font-agnostic)
       fontFamily: cs.fontFamily,
     }
   }, [cycle?.from, cycle?.minWidth, geomNonce]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -575,7 +579,9 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
         <span style={{ display: 'inline-block', whiteSpace: 'nowrap', marginLeft: `${fPct}%`, transform: `translateX(-${fPct}%)` }}>
         {slotIdx === 0 ? (
           // The original word carries a little uneven ink-blot, pinned just before its
-          // first letter (so it rides with the word), shown only while the reel scrolls.
+          // first letter (so it rides with the word). It marks the original whenever that
+          // word is the one resting in place (a≈0), and stays lit while the reel scrolls so
+          // you can see the original pass; it only hides on the off-centre rows mid-spin.
           <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', whiteSpace: 'nowrap' }}>
             <span aria-hidden="true" className="scas-origin-dot"
               style={{ position: 'absolute', right: '100%', marginRight: '1.5px', top: '50%',
@@ -585,7 +591,7 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
                        // No opacity transition: the original passes dead-centre faster than a
                        // fade, so a transition lags behind the motion. The row's opacity fade
                        // (which it inherits) already smooths it spatially as it scrolls.
-                       opacity: moving ? 1 : 0, pointerEvents: 'none' }} />
+                       opacity: (moving || a < 0.5) ? 1 : 0, pointerEvents: 'none' }} />
             {displayFor(word, mobile)}
           </span>
         ) : displayFor(word, mobile)}
