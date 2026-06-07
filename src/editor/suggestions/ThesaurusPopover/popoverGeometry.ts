@@ -74,13 +74,11 @@ export function computeLineCompressionRange(
   const slack = Math.max(0, paraRight - naturalLineRight)
   const exp   = Math.max(0, Math.ceil(minWidth) - naturalWidth)
   if (exp === 0) return null
-  const half  = exp / 2   // ideal: reserve half the expansion on each side of the word
 
   const fe  = editor.view.dom.querySelector('.scas-focused') as HTMLElement | null
   const fsz = parseFloat(fe ? window.getComputedStyle(fe).fontSize : '18') || 18
 
-  // Room between the word's natural right edge and the paragraph's right edge. (fe carries
-  // min-width:naturalWidth at this point, so its right edge is the natural right edge.)
+  // fe carries min-width:naturalWidth here, so its rect is the word's natural box.
   const wordRight = fe ? fe.getBoundingClientRect().right : naturalLineRight
   const rightRoom = Math.max(0, paraRight - wordRight)
   // Keep the line's first word uncompressed (squeezing it would jitter the line start);
@@ -96,13 +94,20 @@ export function computeLineCompressionRange(
   const firstWordEnd = (lineFrom ?? wordFrom) + fwc
   const nBeforeComp = nBefore - fwc
 
-  // Slide the box left by `half` (centred) when there's room; further if the word hugs the
-  // right edge so the box still fits; but never more than the before-text can readably give
-  // up (MAX_LS_EM cap) — a left-edge word with little before-text slides less and so sits
-  // left of centre, the unavoidable edge case.
+  // POSITION-PROPORTIONAL slide. fPos = where the word's centre sits along its visual line
+  // (0 = left, 1 = right). Slide the box left by fPos·exp: a left-edge word slides 0 (grows
+  // rightward), a right-edge word slides exp (grows LEFTWARD — so it never overflows the
+  // right), a mid word slides half (centres). This is a true left→right continuum and still
+  // lands the word on its natural x (the reel aligns at the same fraction).
+  const wordLeft   = wordRight - naturalWidth
+  const wordCentre = wordRight - naturalWidth / 2
+  const lineLeft   = Number.isFinite(lineFromX) ? Math.min(lineFromX, wordLeft) : wordLeft
+  const fPos       = Math.max(0, Math.min(1, (wordCentre - lineLeft) / Math.max(1, naturalLineRight - lineLeft)))
+  // Cap by what the before-text can readably give up; also guarantee the box fits the right
+  // (exp - rightRoom) so it never wraps even if proportional alone would be a touch short.
   const MAX_LS_EM = 0.14
   const maxShift  = Math.max(0, nBeforeComp) * MAX_LS_EM * fsz
-  const beforeShift = Math.min(Math.max(half, exp - rightRoom), maxShift)
+  const beforeShift = Math.min(maxShift, Math.max(fPos * exp, exp - rightRoom))
 
   // BEFORE: compress [firstWordEnd, wordFrom] by `beforeShift` so the box — and the
   // before-neighbour — slide left by that much, centring (or fitting) the reserved box.
