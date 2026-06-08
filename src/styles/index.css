@@ -19,7 +19,9 @@
   .inkwave-editor-surface {
     min-height: 100vh;
     background-color: #ffffff;
-    padding: 0.625rem 1rem 8rem;
+    /* Parchment sits nearly flush with the top of the viewport; sides 1rem; bottom leaves
+       room for the floating footer toolbar. This top value is the single knob for page position. */
+    padding: 0.25rem 1rem 8rem;
   }
 
   /* Parchment paper texture for the scroll body */
