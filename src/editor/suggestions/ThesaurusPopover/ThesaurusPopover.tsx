@@ -509,16 +509,21 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
     // line on commit anyway, so that residual offset is unavoidable — and kept minimal).
     const font         = getFont(focusedEl)
     const naturalLeftC = cycle.naturalLeft - cRect.left
-    const pEl          = focusedEl.closest('p')
-    const paraRightC   = (pEl ? pEl.getBoundingClientRect().right : cRect.right) - cRect.left
-    const widths       = cycle.synonyms.map(s => measureTextWidth(s, font))
-    const widestW      = Math.max(Math.ceil(cycle.naturalWidth), ...widths.map(w => Math.ceil(w)))
-    const DOT_PAD      = 8   // room left of the word for the origin ink-blot
-    const left         = Math.min(naturalLeftC, paraRightC - widestW) - DOT_PAD
-    const cardW        = paraRightC - left
-    // Per-slot left offset within the card: left-aligned at natural x, clamped so the word's
-    // right edge never passes the writing-space edge.
-    const slotLefts    = widths.map(w => Math.min(naturalLeftC, paraRightC - w) - left)
+    // The reserved box IS the focused word's expanded rect; the after-text begins at its right
+    // edge. So reel words must stay within [boxLeft, boxRight] or they paint over the text.
+    // Short words sit at their natural x (exit-stationary); a word too wide to fit there is
+    // pushed left into the box's left-compression space — as close to natural x as it fits.
+    const boxLeftC  = rect.left  - cRect.left
+    const boxRightC = rect.right - cRect.left
+    const widths    = cycle.synonyms.map(s => measureTextWidth(s, font))
+    const DOT_PAD   = 8   // room left of the word for the origin ink-blot
+    const left      = boxLeftC - DOT_PAD
+    const cardW     = boxRightC - left
+    // Per-slot left within the card: natural x, clamped to the box (never past its right edge,
+    // never left of its left edge).
+    const slotLefts = widths.map(w =>
+      Math.max(boxLeftC, Math.min(naturalLeftC, boxRightC - w)) - left,
+    )
 
     const textNode = focusedEl.firstChild
     let textMid: number
@@ -538,7 +543,7 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
       width: cardW,
       fontFamily: cs.fontFamily,
     }
-  }, [cycle?.from, cycle?.minWidth, cycle?.synonyms, geomNonce]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cycle?.from, cycle?.minWidth, cycle?.synonyms, cycle?.alignFraction, geomNonce]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Render ────────────────────────────────────────────────────────────────
 
