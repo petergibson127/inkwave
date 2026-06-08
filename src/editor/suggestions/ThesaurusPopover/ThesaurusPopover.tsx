@@ -141,6 +141,12 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
       // else: committing the unchanged original — record the deliberate choice, skip the edit.
       pinCursor(); advanceOrRestore(from, advance)
     }
+    // If the committed word would cross the right margin — it wraps to the next line by design
+    // (uncommon; the line's slack usually absorbs it) — a reflow can't animate cleanly across a
+    // line break, so snap instead: clear and swap instantly, no easing.
+    const paraRight = focusedEl?.closest('p')?.getBoundingClientRect().right
+    const willWrap  = targetW !== undefined && paraRight !== undefined && cycle.naturalLeft + targetW > paraRight - 2
+    if (willWrap) { onHintChange(null, null); setCycle(null); swap(); return }
     closeWithAnimation(swap, targetW)
   }
 

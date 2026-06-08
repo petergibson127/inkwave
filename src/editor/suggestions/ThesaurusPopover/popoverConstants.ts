@@ -40,4 +40,5 @@ export type OnHintChange = (
   pos: number | null,
   minWidth?: number | null,
   lineRange?: LineRange | null,
+  animate?: boolean,        // false = apply this state instantly (no CSS transition); default true
 ) => void

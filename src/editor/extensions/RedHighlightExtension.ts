@@ -18,10 +18,14 @@ export interface HintState {
   focusedPos: number | null
   showHints: boolean
   focusedMinWidth: number | null
-  // Symmetric letter-spacing compression around the focused word that centres its
-  // reserved box on the word (see LineRange) — before-side slides the box left by half
-  // the expansion, after-side absorbs the rest of the rightward push past the slack.
+  // Right-preferring letter-spacing compression around the focused word (see LineRange):
+  // the after-side absorbs the box expansion so the word keeps its natural x; the before-side
+  // only compresses when the word is too near the margin for the right to take it all.
   lineCompressionRange: LineRange | null
+  // Whether the min-width / letter-spacing changes should CSS-transition. False applies them
+  // instantly — used for the START (jump-to-natural) of an open and for snap (wrap) commits, so
+  // a reused decoration node never animates from the previous word's reserved width (overflow flash).
+  animate: boolean
 }
 
 interface RedHighlightOptions {
@@ -35,7 +39,7 @@ export const RedHighlightExtension = Extension.create<RedHighlightOptions>({
   addOptions() {
     return {
       getDoc: () => { throw new Error('RedHighlightExtension: getDoc option is required') },
-      getHintState: () => ({ focusedPos: null, showHints: true, focusedMinWidth: null, lineCompressionRange: null }),
+      getHintState: () => ({ focusedPos: null, showHints: true, focusedMinWidth: null, lineCompressionRange: null, animate: true }),
     }
   },
 
@@ -155,7 +159,8 @@ function buildDecorations(
 
     if (isFocused) {
       const mw = hintState.focusedMinWidth
-      attrs['style'] = `display:inline-block;color:transparent${mw ? `;min-width:${Math.ceil(mw)}px` : ''};transition:min-width ${REFLOW_MS}ms ${REFLOW_EASE}`
+      const trans = hintState.animate ? `transition:min-width ${REFLOW_MS}ms ${REFLOW_EASE}` : 'transition:none'
+      attrs['style'] = `display:inline-block;color:transparent${mw ? `;min-width:${Math.ceil(mw)}px` : ''};${trans}`
     }
 
     decorations.push(Decoration.inline(from, to, attrs))
@@ -169,7 +174,7 @@ function buildDecorations(
     const fw = redWords.find(rw => rw.from === focusedPos)
     if (fw) {
       const { firstWordEnd: fwe, to: lt, lsBeforeEm, lsAfterEm } = lineCompressionRange
-      const lsTransition = `;transition:letter-spacing ${REFLOW_MS}ms ${REFLOW_EASE}`
+      const lsTransition = hintState.animate ? `;transition:letter-spacing ${REFLOW_MS}ms ${REFLOW_EASE}` : ';transition:none'
       // Apply the span whenever its range exists (even at letter-spacing 0): a 0 span is a
       // visual no-op but must be present so the open/close transition has something to animate.
       if (fwe < fw.from) {

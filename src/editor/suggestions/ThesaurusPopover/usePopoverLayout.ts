@@ -65,12 +65,15 @@ export function usePopoverLayout(
     setCycle(prev => (prev && prev.from === from) ? { ...prev, alignFraction, naturalWidth } : prev)
 
     if (animate && minWidth > naturalWidth) {
-      // START: natural width, no compression — then force the browser to commit it so the END
-      // below transitions from it instead of snapping.
-      onHintChange(from, naturalWidth, lineRange ? { ...lineRange, lsBeforeEm: 0, lsAfterEm: 0 } : null)
+      // START: natural width, no compression, applied INSTANTLY (animate=false) — then force the
+      // browser to commit it so the END transitions from natural, never from a reused node's
+      // previous (wider) reserved width, which would briefly overflow when tabbing between words.
+      onHintChange(from, naturalWidth, lineRange ? { ...lineRange, lsBeforeEm: 0, lsAfterEm: 0 } : null, false)
       void (editor.view.dom.querySelector('.scas-focused') as HTMLElement | null)?.offsetWidth
+      onHintChange(from, minWidth, lineRange, true)     // END — CSS transitions ramp to it
+    } else {
+      onHintChange(from, minWidth, lineRange, false)    // no animation requested → apply instantly
     }
-    onHintChange(from, minWidth, lineRange)             // END — CSS transitions ramp to it
   }
 
   // Animate the reflow back to natural, then tear the cycle down. Called on dismiss/commit so
@@ -136,8 +139,9 @@ export function usePopoverLayout(
     const pEl    = live.closest('p')
     const natRight = pEl ? measureNaturalLineRight(rect, pEl) : rect.right
 
-    // Apply provisional focus immediately to prevent the null-gap flash on Tab nav.
-    onHintChange(domPos, rect.width)
+    // Apply provisional focus immediately (instant, no transition) to prevent the null-gap flash
+    // on Tab nav and to give the open animation a clean natural starting box.
+    onHintChange(domPos, rect.width, null, false)
     setCycle({
       word: lookupWord, from: domPos, to: domPos + displayWord.length,
       synonyms: Array(CYCLE_SIZE).fill(displayWord),
