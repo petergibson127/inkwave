@@ -192,17 +192,24 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
-  // Detect the on-screen keyboard via the visual viewport: when it's up, the visible height
-  // drops well below the layout height. This drives hiding the toolbar on phones. The 150px
-  // threshold ignores smaller resizes (URL bar collapse, the toolbar itself).
+  // Detect the on-screen keyboard from the visual viewport: when it's up, the visible height
+  // drops well below the LARGEST height seen (its no-keyboard height). Comparing to the
+  // tracked max — rather than to window.innerHeight — is robust to iOS quirks where
+  // innerHeight tracks the keyboard, and we ignore offsetTop (a scroll offset, not the
+  // keyboard) so page scroll doesn't fool it. 150px threshold ignores URL-bar resizes.
+  const kbMaxRef = useRef(0)
   useEffect(() => {
     const vv = window.visualViewport
     if (!vv) return
-    const onVV = () => setKeyboardUp(window.innerHeight - vv.height - vv.offsetTop > 150)
+    const onVV = () => {
+      kbMaxRef.current = Math.max(kbMaxRef.current, vv.height)
+      setKeyboardUp(vv.height < kbMaxRef.current - 150)
+    }
+    const onOrient = () => { kbMaxRef.current = vv.height; setKeyboardUp(false) }
     onVV()
     vv.addEventListener('resize', onVV)
-    vv.addEventListener('scroll', onVV)
-    return () => { vv.removeEventListener('resize', onVV); vv.removeEventListener('scroll', onVV) }
+    window.addEventListener('orientationchange', onOrient)
+    return () => { vv.removeEventListener('resize', onVV); window.removeEventListener('orientationchange', onOrient) }
   }, [])
 
   // Keep the caret above the keyboard / bottom toolbar. While the keyboard is up, if typing or
