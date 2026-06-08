@@ -91,45 +91,28 @@ export function computeLineCompressionRange(
   const firstWordEnd = (lineFrom ?? wordFrom) + fwc
   const nBeforeComp = nBefore - fwc
 
-  // EQUAL BUFFERS. The reserved (widest-synonym) box is centred on the word: it extends
-  // exp/2 to each side, so every synonym shows with an equal gap left and right and the
-  // original keeps its natural x. Each side's extension is made by compressing that side's
-  // text; the RIGHT side spends the line's slack before it has to compress (so we never
-  // compress more than needed, and the trailing words can't wrap). If a side can't give its
-  // half — too little text, or the readable cap — the shortfall moves to the other side, so
-  // the box leans only at the true line edges (the left→right continuum).
-  // fe carries min-width:naturalWidth here, so its rect is the word's natural box. rightRoom
-  // is the room from the word's right edge to the margin — the most the box can grow right
-  // before it (and the trailing words) would cross the margin and wrap.
-  const wordRight = fe ? fe.getBoundingClientRect().right : naturalLineRight
-  const rightRoom = Math.max(0, paraRight - wordRight)
   const SAFETY    = 2   // px: keep the line just inside the margin so it never wraps on a tie
 
   const MAX_LS_EM = 0.08   // px-per-em cap that still reads without glyphs touching
 
-  // Total width the line must give up so the expanded box fits: the right slack absorbs part,
-  // the rest is shared. Distribute it at a SINGLE uniform per-character rate across BOTH sides
-  // — so a short side (e.g. a 2-letter trailing word) is never crushed into overlap; the long
-  // side simply absorbs more total at the same gentle rate. (+SAFETY keeps the line a hair
-  // inside the margin so it never wraps on a tie.)
-  const compressTotal = exp > slack ? exp - slack + SAFETY : 0
-  const nComp = Math.max(0, nBeforeComp) + nAfter
-  const ls = nComp > 0 ? Math.min(MAX_LS_EM, compressTotal / nComp / fsz) : 0
-  let beforeComp = Math.max(0, nBeforeComp) * ls * fsz
-  let afterComp  = nAfter * ls * fsz
+  // RIGHT-PREFERRING absorption (exit-stationary). The reserved box grows RIGHTWARD from the
+  // word — pushing the after-text right and compressing it — so the word keeps its natural x and
+  // never drifts right of the text before it. The box slides LEFT (compressing the before-text)
+  // ONLY when the word sits too near the right margin for the right side to absorb the whole
+  // expansion. This is the left→right continuum: mid-line words lean fully right (no left gap),
+  // right-edge words lean left as much as needed.
+  const nBC          = Math.max(0, nBeforeComp)
+  const maxAfterComp = nAfter * MAX_LS_EM * fsz          // most the after-text can give up
+  const maxBeforeComp= nBC    * MAX_LS_EM * fsz          // most the before-text can give up
+  // Slide the box left only by the expansion the right side genuinely can't take (slack it can
+  // spend for free + the most the after-text can compress), capped by the before-text's room.
+  const beforeComp = Math.min(maxBeforeComp, Math.max(0, exp + SAFETY - slack - maxAfterComp))
+  // The remaining rightward push (exp − beforeComp) is absorbed by spending the slack first,
+  // then compressing the after-text by whatever's left over (never more than it can give).
+  const afterComp  = Math.min(maxAfterComp, Math.max(0, (exp - beforeComp) - slack + SAFETY))
 
-  // Box-fit: the box's right edge must not cross the margin, i.e. it must slide left at least
-  // (exp − rightRoom). If the uniform split doesn't slide it far enough, move the shortfall
-  // onto the before-side (long → still gentle), easing the after-side further.
-  const minBefore = Math.max(0, exp - rightRoom)
-  if (beforeComp < minBefore && nBeforeComp > 0) {
-    const shift = Math.min(minBefore - beforeComp, afterComp)
-    beforeComp += shift
-    afterComp  -= shift
-  }
-
-  const lsBeforeEm = nBeforeComp > 0 ? Math.min(MAX_LS_EM, beforeComp / nBeforeComp / fsz) : 0
-  const lsAfterEm  = nAfter > 0 ? Math.min(MAX_LS_EM, afterComp / nAfter / fsz) : 0
+  const lsBeforeEm = nBC    > 0 ? Math.min(MAX_LS_EM, beforeComp / nBC    / fsz) : 0
+  const lsAfterEm  = nAfter > 0 ? Math.min(MAX_LS_EM, afterComp  / nAfter / fsz) : 0
 
   if (lsBeforeEm === 0 && lsAfterEm === 0) return null
   // Where the word sits inside the reserved box (= how far the box slid left, as a fraction
