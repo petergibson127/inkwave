@@ -74,16 +74,19 @@ export function usePopoverLayout(
   }
 
   // Animate the reflow back to natural, then tear the cycle down. Called on dismiss/commit so
-  // the surrounding text eases back instead of snapping.
-  function closeWithAnimation(after?: () => void) {
+  // the surrounding text eases back instead of snapping. `targetWidth` is where the box should
+  // settle: the original word's width on dismiss, or the CHOSEN synonym's width on commit — in
+  // either case it ramps to the layout the committed/restored text will actually occupy (box at
+  // that width, no compression), so the swap at the end is seamless.
+  function closeWithAnimation(after?: () => void, targetWidth?: number) {
     clearCloseTimer()
     const c = cycle
     if (!c || c.overlay) { onHintChange(null, null); setCycle(null); after?.(); return }
-    // Ramp the box + compression back to natural together (CSS transitions animate both): keep
+    // Ramp the box + compression to the target together (CSS transitions animate both): keep
     // the same compression ranges but with letter-spacing 0, so the spans transition rather than
-    // vanish. The reel stays up (the original sits at its natural x, which doesn't move).
+    // vanish. The reel stays up (the chosen word sits at its natural x, which doesn't move).
     const lr = lastLineRangeRef.current
-    onHintChange(c.from, c.naturalWidth, lr ? { ...lr, lsBeforeEm: 0, lsAfterEm: 0 } : null)
+    onHintChange(c.from, targetWidth ?? c.naturalWidth, lr ? { ...lr, lsBeforeEm: 0, lsAfterEm: 0 } : null)
     closeTimerRef.current = setTimeout(() => {
       closeTimerRef.current = null
       onHintChange(null, null)

@@ -119,20 +119,29 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
   }
   function acceptSuggestion(replacement: string, advance: boolean) {
     if (!cycle) return
-    const { from, to } = cycle; const wl = to - from
-    onHintChange(null, null)
-    if (replacement !== editor.state.doc.textBetween(from, to)) {
-      if (tabCursorRef.current !== null && from < tabCursorRef.current) tabCursorRef.current += replacement.length - wl
-      // Carry the SCAS-slot mark (anchored to this slot's original word) so the position
-      // stays managed: it keeps rendering red/changeable even if the new word is in vocab,
-      // and reopening re-offers the original's synonym list. cycle.word holds the original.
-      editor.chain().deleteRange({ from, to }).insertContentAt(from, {
-        type: 'text', text: replacement,
-        marks: [{ type: 'scasSlot', attrs: { original: cycle.word } }],
-      }).run()
+    const { from, to, word } = cycle; const wl = to - from
+    const changed = replacement !== editor.state.doc.textBetween(from, to)
+    recordAccepted()
+    // Ease the reserved box down to the chosen synonym's own width (and de-compress the line)
+    // before swapping — so the commit reflows like the open did, instead of snapping. The reel's
+    // chosen word already sits at its natural x, so it stays put while the surroundings settle.
+    const focusedEl = editor.view.dom.querySelector('.scas-focused') as HTMLElement | null
+    const targetW   = focusedEl ? measureTextWidth(replacement, getFont(focusedEl)) : undefined
+    const swap = () => {
+      if (changed) {
+        if (tabCursorRef.current !== null && from < tabCursorRef.current) tabCursorRef.current += replacement.length - wl
+        // Carry the SCAS-slot mark (anchored to this slot's original word) so the position
+        // stays managed: it keeps rendering red/changeable even if the new word is in vocab,
+        // and reopening re-offers the original's synonym list. `word` holds the original.
+        editor.chain().deleteRange({ from, to }).insertContentAt(from, {
+          type: 'text', text: replacement,
+          marks: [{ type: 'scasSlot', attrs: { original: word } }],
+        }).run()
+      }
+      // else: committing the unchanged original — record the deliberate choice, skip the edit.
+      pinCursor(); advanceOrRestore(from, advance)
     }
-    // else: committing the unchanged original — record the deliberate choice, skip the edit.
-    pinCursor(); recordAccepted(); setCycle(null); advanceOrRestore(from, advance)
+    closeWithAnimation(swap, targetW)
   }
 
   // Refs so the once-subscribed input handlers below read live state without
