@@ -74,7 +74,10 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
   // Turn the "moving" flag off once the reel is genuinely at rest — but NOT while a drag
   // is held (even paused/stationary) or an animation is running, so a slow drag never
   // blinks the marker off between pointer-move events.
-  function scheduleMovingOff(delay = 120) {
+  // Linger longer than a deliberate key-tap cadence so cycling j/k doesn't drop `moving` between
+  // presses (which made the neighbour rows fade then snap back — the strobe). 300ms covers taps;
+  // held key-repeat is far faster and stays continuously lit.
+  function scheduleMovingOff(delay = 300) {
     if (movingTimerRef.current) clearTimeout(movingTimerRef.current)
     movingTimerRef.current = setTimeout(() => {
       if (!draggingRef.current && rafRef.current === null) setMoving(false)
@@ -670,9 +673,10 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
           // On commit keep the chosen word opaque and fade the neighbours to 0 over the glide, so
           // they ease away in step with the reel settling rather than vanishing with the card.
           opacity: committing ? (ring === base ? 1 : 0) : opacity,
-          // Smooth the neighbours' fade-out when the reel settles; none while moving so the
-          // per-frame opacity stays crisp (a transition would smear the scrolling fade).
-          transition: committing ? `opacity ${REFLOW_COMMIT_MS}ms ${REFLOW_EASE}` : (moving ? 'none' : 'opacity 160ms ease'),
+          // Only a continuous DRAG needs the crisp per-frame opacity (transition off, or it smears
+          // the scrolling fade). A keyboard glide or the settle-to-rest should ease in/out — so the
+          // neighbour rows fade rather than snap, killing the rapid-cycle strobe.
+          transition: committing ? `opacity ${REFLOW_COMMIT_MS}ms ${REFLOW_EASE}` : (draggingRef.current ? 'none' : 'opacity 140ms ease'),
           WebkitTapHighlightColor: 'transparent',
         }}>
         {/* Left-align the word at its clamped natural-x offset within the card, so what's
