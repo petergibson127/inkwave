@@ -174,3 +174,70 @@ Inconsistent rather than continuous jitter.
 - [ ] Open popover, scroll the paper → per-frame layout cost (F2).
 - [ ] Mobile: open a word, then trigger the keyboard/toolbar resize mid-commit (F2, mobile).
 - [ ] Set `?flip=1` and compare — this is the *only* path that actually animates the reflow.
+
+---
+
+# Round 2 — re-audit after the fixes (commits `89d7a35`, `1e85049`, `969cebd`)
+
+**Resolved:** F1 + F4 (the `settled` model→live swap and the `alignFraction` placeholder are
+gone — `geom` now uses the live rect from frame one, single coordinate source). F3 (neighbour
+strobe — linger raised to 300 ms, transition only disabled for a continuous drag). The *commit*
+half of R1 (the after-text now FLIP-slides home by default instead of snapping).
+
+Remaining sources of small jumps / flicker, in priority order:
+
+### N1 — Open still snaps; only commit animates now (asymmetry). *(Medium-High)*
+
+R1 was fixed for **commit** (FLIP promoted to default, `usePopoverLayout.ts:24-29`) but **open
+was left on the instant path**: `openCycleForElement` still calls
+`applyLayout(domPos, …, /*animate*/ false)` (`usePopoverLayout.ts:228`). So opening a word
+abruptly grows the reserved box and compresses the line in one frame, while committing/closing
+eases the same layout back. The eye reads the mismatch as "jumps open, glides shut." This is
+now the most visible remaining jolt. **Fix:** mirror the commit FLIP on open — measure the
+after-text's natural left, apply the compression instantly, then invert it with a
+`translateX` and ease to 0 (the box's `min-width` grow can't transition, but its *visible*
+effect is exactly the after-text sliding right, which is what FLIP animates). Same technique
+already proven in `closeWithAnimation:135-144`.
+
+### N2 — The reel word's commit slide-home doesn't arm its transition → it snaps. *(Medium)*
+
+`ThesaurusPopover.tsx:667-671`: when `committing` flips `false → true`, the chosen span gets
+**both** `transform: translate(naturalInCard−slotLeft, reelSettle)` **and**
+`transition: transform 240ms` applied in the *same* React commit / single style recalc. Per the
+project's own note (`usePopoverLayout.ts:85-89`) and the FLIP path's forced-reflow dance
+(`:140-142`), Chromium will **not** start a transition when the `transition` property and the
+animated value change in one flush with no prior armed state — so the chosen word **jumps** to
+its home x/y while the surrounding after-text (which *does* arm correctly via the FLIP reflow)
+glides. The same applies to the row's `committing` opacity (`:654/:658`): neighbours likely
+vanish instantly rather than fade. Net: on commit the text slides but the word pops — a small
+mismatch jump. **Fix:** keep a permanent `transition: transform …` on the span and only toggle
+the `transform` value (so the transition is always armed), or render one frame at the start
+value with `transition:none`, force a reflow, then set the target — exactly as the open and
+FLIP paths do. *(Confirm in-browser — browser-dependent.)*
+
+### N3 — Three scroll/resize subscriptions still overlap; resize rebuilds the PM DOM. *(Low-Medium)*
+
+Still present and unconsolidated: `forceUpdate` (`usePopoverLayout.ts:39-45`), `geomNonce`
+(`ThesaurusPopover.tsx:526-532`), and resize→`applyLayout` (`usePopoverLayout.ts:164-170`). On
+scroll, two of them recompute geometry (`getBoundingClientRect` + `document.createRange`) every
+event → layout thrash if the paper is scrolled with the popover open. On resize the third
+re-dispatches PM transactions and rebuilds the `.scas-focused` node, discarding any in-flight
+`committing`/FLIP transform — so a resize mid-commit (iOS keyboard/toolbar show-hide) yanks the
+animation and jumps. **Fix:** one rAF-throttled geometry owner; skip the resize re-layout while
+`committing` is true.
+
+### N4 — Reel jumps vertically on synonym-load for a managed (re-opened) word. *(Low)*
+
+The reset effect keyed on `[cycle?.from, cycle?.synonyms]` sets `reelRef = cycle.reelPos`. The
+provisional state seeds `reelPos: 0` (`usePopoverLayout.ts:203`); when synonyms land,
+`reelPos` becomes `findIndex(current word)` (`:222`), which for a previously-cycled word is
+non-zero — so the reel **snaps from slot 0 to slot N** the instant the fetch resolves. Normal
+red words keep `reelPos: 0` (no jump); only re-opened managed words are affected. **Fix:** seed
+the provisional `reelPos` to the resolved value up front, or ease to it instead of resetting.
+
+### N5 — Cold-open flash: original-word-×8 → real synonyms + box grow. *(Low)*
+
+While `getSynonyms` is in flight the reel shows the original word in all 8 slots at natural
+width; on resolve it pops to 8 real synonyms **and** the box grows (N1). Warm prefetch hides
+this, but a cold/cache-miss open flashes the placeholder then jumps. Tied to N1 — fixing the
+open animation (and/or holding the card hidden until synonyms resolve on a cold fetch) covers it.

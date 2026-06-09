@@ -616,6 +616,11 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
   // hanging at their offset and blinking out. (reel-base) is the fraction to absorb; for the centre
   // row it equals -rel, so the chosen word lands exactly on the text line.
   const reelSettle = (reel - base) * rowH
+  // The word currently written in the document (NOT necessarily the synonym-list anchor): it's
+  // dark #5c2d8a in the text, so the reel must render it dark too — otherwise clicking a word
+  // jumps its colour from dark to the bright candidate purple. Candidates are bright; the dark
+  // one matches the page, so the clicked word doesn't change colour on open.
+  const currentWord = (editor.state.doc.textBetween(cycle.from, cycle.to) || '').trim().toLowerCase()
   const rows: React.ReactNode[] = []
   for (let d = -WINDOW; d <= WINDOW; d++) {
     const ring    = base + d
@@ -623,7 +628,7 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
     const word    = cycle.synonyms[slotIdx]
     const rel     = ring - reel                       // continuous offset from centre, in rows
     const a       = Math.abs(rel)
-    const isOrig  = word === cycle.synonyms[0]
+    const isCurrent = word.trim().toLowerCase() === currentWord   // the word presently in the text
     // The card is transparent and 3 rows tall, so at rest the peeking prev/next synonyms
     // bleed onto the text lines above and below (no background to mask them). So reveal the
     // neighbours ONLY while the reel is in motion: at rest just the centre word shows, in
@@ -648,14 +653,18 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
           // as a left/right jiggle while scrolling. Depth comes from the opacity fade.
           transform: `translateY(${(rel * rowH).toFixed(2)}px)`,
           willChange: 'transform',
-          color: isOrig ? '#5c2d8a' : '#9b5ccc',
+          // Current word dark (matches the page → no colour jump on open); candidates bright. On
+          // commit the chosen word eases to the committed (dark) colour as it lands, so there's no
+          // bright→dark snap when the reel word becomes the written word.
+          color: (committing && ring === base) || isCurrent ? '#5c2d8a' : '#9b5ccc',
           // On commit keep the chosen word opaque and fade the neighbours to 0 over the glide, so
           // they ease away in step with the reel settling rather than vanishing with the card.
           opacity: committing ? (ring === base ? 1 : 0) : opacity,
           // Only a continuous DRAG needs the crisp per-frame opacity (transition off, or it smears
           // the scrolling fade). A keyboard glide or the settle-to-rest should ease in/out — so the
-          // neighbour rows fade rather than snap, killing the rapid-cycle strobe.
-          transition: committing ? `opacity ${REFLOW_COMMIT_MS}ms ${REFLOW_EASE}` : (draggingRef.current ? 'none' : 'opacity 140ms ease'),
+          // neighbour rows fade rather than snap, killing the rapid-cycle strobe. Colour eases over
+          // the commit so the chosen word darkens into place rather than snapping.
+          transition: committing ? `opacity ${REFLOW_COMMIT_MS}ms ${REFLOW_EASE}, color ${REFLOW_COMMIT_MS}ms ${REFLOW_EASE}` : (draggingRef.current ? 'none' : 'opacity 140ms ease'),
           WebkitTapHighlightColor: 'transparent',
         }}>
         {/* Left-align the word at its clamped natural-x offset within the card, so what's
