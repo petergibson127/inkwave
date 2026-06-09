@@ -12,7 +12,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import type { Editor } from '@tiptap/react'
 import { useCompliance } from '../../../scas/compliance'
-import { CYCLE_SIZE, REFLOW_OPEN_MS } from './popoverConstants'
+import { CYCLE_SIZE, REFLOW_OPEN_MS, REFLOW_COMMIT_MS, REFLOW_EASE } from './popoverConstants'
 import type { OnHintChange } from './popoverConstants'
 import { posOf } from './popoverGeometry'
 import { displayFor } from './popoverFallbacks'
@@ -44,8 +44,12 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
   // Bump on scroll/resize so the memoised geometry recomputes; reel animation does NOT
   // touch this, so per-frame reelPos updates never redo getBoundingClientRect.
   const [geomNonce, setGeomNonce] = useState(0)
+  // True during a commit: the chosen reel synonym slides from its (possibly shifted-left) reel
+  // position to its committed natural-x over REFLOW_COMMIT_MS, in sync with the decoration's
+  // left/right de-compression — so the word slides home WITH the surrounding text, not after it.
+  const [committing, setCommitting] = useState(false)
 
-  useEffect(() => { onCycleChange(!!cycle) }, [!!cycle]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { onCycleChange(!!cycle); if (!cycle) setCommitting(false) }, [!!cycle]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const redWords = () => Array.from(editor.view.dom.querySelectorAll<HTMLElement>('.scas-red'))
 
@@ -147,6 +151,7 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
     const paraRight = focusedEl?.closest('p')?.getBoundingClientRect().right
     const willWrap  = targetW !== undefined && paraRight !== undefined && cycle.naturalLeft + targetW > paraRight - 2
     if (willWrap) { onHintChange(null, null); setCycle(null); swap(); return }
+    setCommitting(true)          // slide the reel synonym home in sync with the de-compression
     closeWithAnimation(swap, targetW)
   }
 
@@ -579,6 +584,7 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
     const cardH = rowH * 3                    // prev / current / next visible at once
     return {
       fsz, left, rowH, cardH, slotLefts,
+      naturalInCard: naturalLeftC - left,     // the word's committed x, in card coords (slide target)
       cardTop: textMid - cardH / 2,           // current row centred on the focused word
       width: cardW,
       fontFamily: cs.fontFamily,
@@ -641,8 +647,12 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
           WebkitTapHighlightColor: 'transparent',
         }}>
         {/* Left-align the word at its clamped natural-x offset within the card, so what's
-            shown is exactly where it commits (no jump on exit). */}
-        <span style={{ display: 'inline-block', whiteSpace: 'nowrap', marginLeft: `${slotLefts[slotIdx]}px` }}>
+            shown is exactly where it commits (no jump on exit). On COMMIT, slide it from there to
+            its committed natural-x (translateX) over the same 240ms as the de-compression, so the
+            word travels home WITH the surrounding text instead of snapping after it. */}
+        <span style={{ display: 'inline-block', whiteSpace: 'nowrap', marginLeft: `${slotLefts[slotIdx]}px`,
+                       transform: committing ? `translateX(${(geom.naturalInCard - slotLefts[slotIdx]).toFixed(2)}px)` : 'none',
+                       transition: committing ? `transform ${REFLOW_COMMIT_MS}ms ${REFLOW_EASE}` : 'none' }}>
         {slotIdx === 0 ? (
           // The original word carries a little uneven ink-blot, pinned just before its
           // first letter (so it rides with the word). It marks the original whenever that
@@ -672,7 +682,7 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
           word floats directly on the parchment (lines above/below may show through). */}
       <div className="absolute z-50 select-none scas-cycle-card"
         style={{ top: cardTop, left, width: cardWidth, height: cardH, boxSizing: 'border-box',
-                 fontFamily, fontSize: fsz, overflow: 'hidden',
+                 fontFamily, fontSize: fsz, overflow: committing ? 'visible' : 'hidden',
                  background: cardBg, WebkitTapHighlightColor: 'transparent' }}>
         {rows}
       </div>

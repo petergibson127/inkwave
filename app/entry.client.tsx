@@ -3,7 +3,7 @@ import { hydrateRoot } from 'react-dom/client'
 import { HydratedRouter } from 'react-router/dom'
 
 // Build marker — confirms the live build in the console (helps catch stale-cache situations).
-console.log('%c[inkwave] build: anim-polish-r32', 'color:#5c2d8a;font-weight:bold')
+console.log('%c[inkwave] build: commit-slide-r33', 'color:#5c2d8a;font-weight:bold')
 
 startTransition(() => {
   hydrateRoot(
