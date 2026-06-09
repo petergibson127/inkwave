@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Editor } from '@tiptap/react'
 import { getSynonyms } from '../thesaurus'
 import { getFont } from '../textMetrics'
-import { CYCLE_SIZE, DELETE_SENTINEL, REFLOW_OPEN_MS, REFLOW_COMMIT_MS } from './popoverConstants'
+import { CYCLE_SIZE, DELETE_SENTINEL, REFLOW_OPEN_MS, REFLOW_COMMIT_MS, REFLOW_EASE } from './popoverConstants'
 import type { CycleState, OnHintChange, LineRange } from './popoverConstants'
 import { posOf, measureNaturalLineRight, computeLineCompressionRange } from './popoverGeometry'
 import { buildSynonyms } from './popoverFallbacks'
@@ -14,6 +14,17 @@ function wantsOverlay(): boolean {
   if (typeof window === 'undefined') return false
   try {
     return new URLSearchParams(window.location.search).get('overlay') === '1'
+  } catch { return false }
+}
+
+// EXPERIMENTAL (?flip=1): FLIP the after-text slide on commit/close instead of snapping it.
+// The layout still changes in ONE step (one reflow, no per-frame layout = no lag), but the
+// after-text run is then pulled back to where it was with a compositor transform and eased to
+// 0 — so the surrounding text appears to slide smoothly. Off by default; A/B against the snap.
+function wantsFlip(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    return new URLSearchParams(window.location.search).get('flip') === '1'
   } catch { return false }
 }
 
@@ -99,10 +110,45 @@ export function usePopoverLayout(
     // the same compression ranges but with letter-spacing 0, so the spans transition rather than
     // vanish. The reel stays up (the chosen word sits at its natural x, which doesn't move).
     const lr = lastLineRangeRef.current
+
+    // FLIP (experimental): record where the after-text starts BEFORE the snap, so we can pull it
+    // back there afterwards and ease it home. The focused word's right edge IS the after-run's
+    // left edge (they're adjacent), so one measurement captures the whole slide.
+    const flip = wantsFlip()
+    let beforeRight: number | null = null
+    if (flip) {
+      const fe = editor.view.dom.querySelector('.scas-focused') as HTMLElement | null
+      beforeRight = fe ? fe.getBoundingClientRect().right : null
+    }
+
     // Settle the surrounding text to natural INSTANTLY (no per-frame reflow — the lag). The word
     // itself still slides home smoothly on the compositor (the `committing` transform in
     // ThesaurusPopover), so the part the eye is on glides while the rest just resolves.
     onHintChange(c.from, targetWidth ?? c.naturalWidth, lr ? { ...lr, lsBeforeEm: 0, lsAfterEm: 0 } : null, false)
+
+    // FLIP play: the snap above moved the after-text to its final spot in one reflow. Now invert
+    // it (translateX back to beforeRight) and transition to 0 — the run slides smoothly on the
+    // compositor without any further layout. The after-run is single-line by construction (its
+    // range ends at the focused word's visual line end), so inline-block can't break wrapping.
+    if (flip && beforeRight !== null) {
+      const fe = editor.view.dom.querySelector('.scas-focused') as HTMLElement | null
+      // The after-compression decoration wraps [word.to, lineEnd] in a letter-spacing span that
+      // sits immediately after the focused word — find it by that signature.
+      let afterSpan = fe?.nextElementSibling as HTMLElement | null
+      if (afterSpan && !afterSpan.style?.letterSpacing) afterSpan = null
+      if (fe && afterSpan) {
+        const dx = beforeRight - fe.getBoundingClientRect().right   // how far the after-text snapped left
+        if (Math.abs(dx) > 0.5) {
+          afterSpan.style.display    = 'inline-block'
+          afterSpan.style.transform  = `translateX(${dx.toFixed(2)}px)`
+          afterSpan.style.transition = 'none'
+          void afterSpan.offsetWidth                                 // commit the inverted start
+          afterSpan.style.transition = `transform ${REFLOW_COMMIT_MS}ms ${REFLOW_EASE}`
+          afterSpan.style.transform  = 'translateX(0)'
+        }
+      }
+    }
+
     closeTimerRef.current = setTimeout(() => {
       closeTimerRef.current = null
       // Swap FIRST (old word -> committed synonym), THEN clear the decoration + reel — so the
