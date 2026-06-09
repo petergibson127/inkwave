@@ -166,7 +166,11 @@ function buildDecorations(
     if (isFocused) {
       const mw = hintState.focusedMinWidth
       const trans = hintState.animate ? `transition:min-width ${hintState.durationMs}ms ${REFLOW_EASE}` : 'transition:none'
-      attrs['style'] = `display:inline-block;color:transparent${mw ? `;min-width:${Math.ceil(mw)}px` : ''};${trans}`
+      // Use the EXACT reserved width (not Math.ceil): ceiling rounds the box up by up to 1px, so on
+      // commit the after-text sat ~1px right of where the committed (exact-width) text lands and
+      // snapped left at the swap — the end-of-motion twitch, worst on short words. Sub-pixel
+      // min-width is fine; the box now matches the committed glyph run.
+      attrs['style'] = `display:inline-block;color:transparent${mw ? `;min-width:${mw.toFixed(2)}px` : ''};${trans}`
     }
 
     decorations.push(Decoration.inline(from, to, attrs))
