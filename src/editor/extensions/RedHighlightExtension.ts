@@ -77,6 +77,9 @@ interface RedWord {
   word: string
   dataWord: string   // synonym-lookup key: the slot's original word (= word, unless managed)
   seqInPara: number  // 1-based — kept for data-scas-n (debugging / future use)
+  secondary: boolean // a managed slot whose current text differs from its original — a substituted
+                     // word. Rendered the lighter purple (matches the reel's candidate colour) so a
+                     // committed synonym keeps its colour.
 }
 
 function buildDecorations(
@@ -125,6 +128,7 @@ function buildDecorations(
         redWords.push({
           from, to, pIdx, word, seqInPara: ++seqInPara,
           dataWord: slotOriginal ?? word.toLowerCase(),
+          secondary: !!slotOriginal && word.toLowerCase() !== slotOriginal.toLowerCase(),
         })
       }
     })
@@ -148,10 +152,10 @@ function buildDecorations(
   const decorations: Decoration[] = []
   const { focusedPos } = hintState
 
-  for (const { from, to, dataWord, pIdx, seqInPara } of redWords) {
+  for (const { from, to, dataWord, pIdx, seqInPara, secondary } of redWords) {
     const isFocused = focusedPos !== null && from === focusedPos
     const attrs: Record<string, string> = {
-      class: isFocused ? 'scas-red scas-focused' : 'scas-red',
+      class: `scas-red${isFocused ? ' scas-focused' : ''}${secondary ? ' scas-secondary' : ''}`,
       'data-word': dataWord,
       'data-para': String(pIdx),
       'data-scas-n': String(seqInPara),

@@ -616,11 +616,6 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
   // hanging at their offset and blinking out. (reel-base) is the fraction to absorb; for the centre
   // row it equals -rel, so the chosen word lands exactly on the text line.
   const reelSettle = (reel - base) * rowH
-  // The word currently written in the document (NOT necessarily the synonym-list anchor): it's
-  // dark #5c2d8a in the text, so the reel must render it dark too — otherwise clicking a word
-  // jumps its colour from dark to the bright candidate purple. Candidates are bright; the dark
-  // one matches the page, so the clicked word doesn't change colour on open.
-  const currentWord = (editor.state.doc.textBetween(cycle.from, cycle.to) || '').trim().toLowerCase()
   const rows: React.ReactNode[] = []
   for (let d = -WINDOW; d <= WINDOW; d++) {
     const ring    = base + d
@@ -628,7 +623,7 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
     const word    = cycle.synonyms[slotIdx]
     const rel     = ring - reel                       // continuous offset from centre, in rows
     const a       = Math.abs(rel)
-    const isCurrent = word.trim().toLowerCase() === currentWord   // the word presently in the text
+    const isOrig  = word === cycle.synonyms[0]   // the original (dark); candidates are the lighter purple
     // The card is transparent and 3 rows tall, so at rest the peeking prev/next synonyms
     // bleed onto the text lines above and below (no background to mask them). So reveal the
     // neighbours ONLY while the reel is in motion: at rest just the centre word shows, in
@@ -653,18 +648,17 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
           // as a left/right jiggle while scrolling. Depth comes from the opacity fade.
           transform: `translateY(${(rel * rowH).toFixed(2)}px)`,
           willChange: 'transform',
-          // Current word dark (matches the page → no colour jump on open); candidates bright. On
-          // commit the chosen word eases to the committed (dark) colour as it lands, so there's no
-          // bright→dark snap when the reel word becomes the written word.
-          color: (committing && ring === base) || isCurrent ? '#5c2d8a' : '#9b5ccc',
+          // Original word dark, secondary/candidate words the lighter purple — a committed
+          // secondary word KEEPS this lighter colour (the page text matches it, see
+          // .scas-secondary), so the colour never changes between reel, commit and page.
+          color: isOrig ? '#5c2d8a' : '#9b5ccc',
           // On commit keep the chosen word opaque and fade the neighbours to 0 over the glide, so
           // they ease away in step with the reel settling rather than vanishing with the card.
           opacity: committing ? (ring === base ? 1 : 0) : opacity,
           // Only a continuous DRAG needs the crisp per-frame opacity (transition off, or it smears
           // the scrolling fade). A keyboard glide or the settle-to-rest should ease in/out — so the
-          // neighbour rows fade rather than snap, killing the rapid-cycle strobe. Colour eases over
-          // the commit so the chosen word darkens into place rather than snapping.
-          transition: committing ? `opacity ${REFLOW_COMMIT_MS}ms ${REFLOW_EASE}, color ${REFLOW_COMMIT_MS}ms ${REFLOW_EASE}` : (draggingRef.current ? 'none' : 'opacity 140ms ease'),
+          // neighbour rows fade rather than snap, killing the rapid-cycle strobe.
+          transition: committing ? `opacity ${REFLOW_COMMIT_MS}ms ${REFLOW_EASE}` : (draggingRef.current ? 'none' : 'opacity 140ms ease'),
           WebkitTapHighlightColor: 'transparent',
         }}>
         {/* Left-align the word at its clamped natural-x offset within the card, so what's
@@ -678,24 +672,7 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
                          ? `translate(${(ring === base ? geom.naturalInCard - slotLefts[slotIdx] : 0).toFixed(2)}px, ${reelSettle.toFixed(2)}px)`
                          : 'none',
                        transition: committing ? `transform ${REFLOW_COMMIT_MS}ms ${REFLOW_EASE}` : 'none' }}>
-        {slotIdx === 0 ? (
-          // The original word carries a little uneven ink-blot, pinned just before its
-          // first letter (so it rides with the word). It marks the original whenever that
-          // word is the one resting in place (a≈0), and stays lit while the reel scrolls so
-          // you can see the original pass; it only hides on the off-centre rows mid-spin.
-          <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', whiteSpace: 'nowrap' }}>
-            <span aria-hidden="true" className="scas-origin-dot"
-              style={{ position: 'absolute', right: '100%', marginRight: '1.5px', top: '50%',
-                       width: 4.5, height: 5, background: '#5c2d8a',
-                       borderRadius: '70% 30% 55% 45% / 55% 65% 35% 45%',
-                       transform: 'translateY(-50%) rotate(-18deg)',
-                       // No opacity transition: the original passes dead-centre faster than a
-                       // fade, so a transition lags behind the motion. The row's opacity fade
-                       // (which it inherits) already smooths it spatially as it scrolls.
-                       opacity: (moving || a < 0.5) ? 1 : 0, pointerEvents: 'none' }} />
-            {displayFor(word, mobile)}
-          </span>
-        ) : displayFor(word, mobile)}
+        {displayFor(word, mobile)}
         </span>
       </div>,
     )

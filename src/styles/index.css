@@ -87,6 +87,14 @@
     color: #9b5ccc;
   }
 
+  /* A substituted (secondary) word — committed from a synonym, not the original. Rendered the
+     lighter purple so it matches the reel's candidate colour: a committed synonym keeps the colour
+     it had in the reel, and reopening it shows the same colour (no jump). The original word stays
+     the darker #5c2d8a. */
+  .scas-secondary {
+    color: #9b5ccc;
+  }
+
   /* "tab" hint badge — centred above word */
   .scas-red[data-hint="tab"]::before {
     content: 'tab';
