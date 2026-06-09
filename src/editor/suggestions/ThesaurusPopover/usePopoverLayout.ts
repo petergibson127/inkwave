@@ -134,11 +134,26 @@ export function usePopoverLayout(
     // transform; a manual DOM edit is reverted by PM's reconciler within a frame.
     if (flip && beforeRight !== null && lr) {
       const fe = editor.view.dom.querySelector('.scas-focused') as HTMLElement | null
+      const pe = fe?.closest('p')
+      const afterSpan = pe?.querySelector('.scas-comp-after') as HTMLElement | null
       const dx = fe ? beforeRight - fe.getBoundingClientRect().right : 0
-      if (fe && Math.abs(dx) > 0.5) {
+      // Only slide if the de-compressed after-run still sits on ONE line within the right margin.
+      // If a longer commit has filled/overflowed the line, making the run display:inline-block (it
+      // must be, to carry the transform) would drop the WHOLE atomic run to the next line mid-slide
+      // — the end-of-line comma "wrapping away and back", and lower-line words appearing to move.
+      // In that case skip the slide entirely: the line just snaps to its rewrapped layout. (The
+      // "joining word slides in from the right" treatment is a separate, later step.)
+      let fits = true
+      if (fe && afterSpan && pe) {
+        const ar = afterSpan.getBoundingClientRect()
+        const fh = fe.getBoundingClientRect().height || 1
+        const paraRight = pe.getBoundingClientRect().right
+        fits = ar.height < fh * 1.5 && ar.right <= paraRight + 1   // single line, inside the margin
+      }
+      if (fe && afterSpan && fits && Math.abs(dx) > 0.5) {
         const flat = { ...lr, lsBeforeEm: 0, lsAfterEm: 0 }
         onHintChange(c.from, targetWidth ?? c.naturalWidth, { ...flat, afterSlidePx: dx }, false)   // invert, instant
-        void (editor.view.dom.querySelector('.scas-comp-after') as HTMLElement | null)?.offsetWidth // commit the start
+        void afterSpan.offsetWidth                                                                  // commit the start
         onHintChange(c.from, targetWidth ?? c.naturalWidth, { ...flat, afterSlidePx: 0 }, true, REFLOW_COMMIT_MS) // play home
       }
     }
