@@ -632,7 +632,8 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
           position: 'absolute', left: 0, right: 0, height: rowH,
           top: (cardH - rowH) / 2,
           display: 'flex', alignItems: 'center', justifyContent: 'flex-start',
-          whiteSpace: 'nowrap', overflow: 'hidden', cursor: 'pointer',
+          // overflow visible during commit so the synonym's tail isn't clipped as it slides home.
+          whiteSpace: 'nowrap', overflow: committing ? 'visible' : 'hidden', cursor: 'pointer',
           fontSize: fsz,
           // Move via translateY only (compositor-only). No scale: scaling centred text
           // shifts its edges ~1px as the row's distance-from-centre wobbles, which reads
