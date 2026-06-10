@@ -167,14 +167,13 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
     acceptRef.current(c.synonyms[slotAt(pos)], advance)
   }
 
-  // Commit whatever slot the reel has come to rest on, honouring the original-not-engaged rule:
-  // resting on the untouched original (slot 0, reel never moved) dismisses rather than commits.
-  // Used by fling so a released flick auto-commits once its momentum settles.
+  // Commit whatever slot the reel has come to rest on. A tap/rest on the ORIGINAL word (even
+  // un-scrolled) now CONFIRMS it (records it as a deliberate choice and eases shut) rather than
+  // dismissing — dropping the old "you must scroll the word around to confirm" requirement.
+  // Dismiss is still available via Escape / Tab-away / tapping outside the reel.
   function commitLandedRest() {
     const c = cycleRef.current; if (!c) return
-    const idx = slotAt(reelRef.current)
-    if (idx === 0 && !engagedRef.current) closeCycle()
-    else acceptRef.current(c.synonyms[idx], false)
+    acceptRef.current(c.synonyms[slotAt(reelRef.current)], false)
   }
 
   // Ease reelPos to an integer slot. `onRest` fires once it lands — fling passes the commit so a
@@ -423,13 +422,11 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
       velRef.current = velRef.current * 0.6 + (dPos / dt) * 0.4   // smoothed slots/ms
       schedulePush()
     }
-    // Commit the word the reel is resting on, honouring the original/engaged rule:
-    // the original (slot 0) only commits once the reel has actually moved a spot.
+    // Commit the word the reel is resting on. Resting on the original (even un-scrolled) now
+    // CONFIRMS it rather than dismissing — see commitLandedRest. Dismiss = Escape / Tab / outside tap.
     function commitRested() {
       const c = cycleRef.current; if (!c) return
-      const idx = slotAt(reelRef.current)
-      if (idx === 0 && !engagedRef.current) closeCycle()
-      else acceptRef.current(c.synonyms[idx], false)
+      acceptRef.current(c.synonyms[slotAt(reelRef.current)], false)
     }
     function onPointerUp(e: PointerEvent) {
       const wasDragging = lastY !== null
@@ -453,8 +450,11 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
         // tap, regardless of whether the card painted before this release fired.
         if (opened || !c) return
         const el = e.target as HTMLElement | null
-        if (el?.closest?.('.scas-red') && !el.closest?.('.scas-cycle-card')) return
-        cancelAnim(); commitRested()
+        const onCard = !!el?.closest?.('.scas-cycle-card')
+        if (!onCard && el?.closest?.('.scas-red')) return   // tapped another red word — the open handler dealt with it
+        cancelAnim()
+        if (onCard) commitRested()                          // tap on the reel/word → confirm (even un-scrolled)
+        else closeCycle()                                   // tap on empty space / body → dismiss
         return
       }
       if (wasDragging && c) {
