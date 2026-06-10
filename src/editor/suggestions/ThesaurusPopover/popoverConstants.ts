@@ -58,8 +58,11 @@ export type LineRange = {
                         // doesn't revert it. undefined = normal (no transform, display:inline).
 }
 
-// Post-commit slide-in range (see HintState.slideRange in RedHighlightExtension).
-export type SlideRange = { from: number; to: number; px: number }
+// Post-commit slide-in range (see HintState.slideRange in RedHighlightExtension). `px` is the
+// translateX, `scaleX` the horizontal scale (origin-left) that animates the after-text's
+// de-compression: starting scaled to its compressed width so the slide begins looking exactly like
+// the cycle, easing to 1 (full/de-compressed) — no "extend out" pop. Omitted scaleX = 1.
+export type SlideRange = { from: number; to: number; px: number; scaleX?: number }
 
 export type OnHintChange = (
   pos: number | null,

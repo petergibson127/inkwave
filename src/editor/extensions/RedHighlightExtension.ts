@@ -32,7 +32,7 @@ export interface HintState {
   // [from,to] — the rest of the committed word's visual line, including any word that rewrapped up
   // onto it — as one inline-block translated by `px`, eased to 0 so the after-text (and the joining
   // word, flush) slides in from the right while the lines below snap. null = inactive.
-  slideRange: { from: number; to: number; px: number } | null
+  slideRange: { from: number; to: number; px: number; scaleX?: number } | null
 }
 
 interface RedHighlightOptions {
@@ -219,9 +219,12 @@ function buildDecorations(
   const { slideRange } = hintState
   if (slideRange && slideRange.to > slideRange.from) {
     const tr = hintState.animate ? `transition:transform ${hintState.durationMs}ms ${REFLOW_EASE}` : 'transition:none'
+    const sx = slideRange.scaleX ?? 1
+    // transform-origin left: scaleX expands from the run's left edge (anchored at the committed
+    // word) so the start matches the cycle's compressed run exactly; eases to scaleX(1).
     decorations.push(Decoration.inline(slideRange.from, slideRange.to, {
       class: 'scas-slide-after',
-      style: `display:inline-block;transform:translateX(${slideRange.px.toFixed(2)}px);${tr}`,
+      style: `display:inline-block;transform-origin:left center;transform:translateX(${slideRange.px.toFixed(2)}px) scaleX(${sx.toFixed(4)});${tr}`,
     }))
   }
 

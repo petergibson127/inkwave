@@ -177,6 +177,7 @@ export function usePopoverLayout(
   // glide. The slide is driven by a decoration independent of the cycle, so it survives teardown.
   function commitWithSlide(swap: () => void, from: number, replacementLen: number) {
     clearCloseTimer()
+    const lr = lastLineRangeRef.current   // the open's compression (lsAfterEm) — for the de-compress scale
     // 1. FIRST — the after-run's left edge before the swap = the focused (expanded) box's right.
     const fe0 = editor.view.dom.querySelector('.scas-focused') as HTMLElement | null
     const beforeRight = fe0 ? fe0.getBoundingClientRect().right : null
@@ -193,20 +194,24 @@ export function usePopoverLayout(
     const wrect = wordEl.getBoundingClientRect()
     const lineEnd = lineEndPosAfter(wrect, committedTo, pe, editor)
     if (lineEnd <= committedTo) return                 // word sits at the line end → nothing to slide
-    let dx = beforeRight - wrect.right                 // how far the after-run's left moved (>0 ⇒ in from the right)
-    // Don't start the run beyond the right margin: de-compressed it is WIDER than the compressed
-    // version that fit on the line during the cycle, so a full-dx invert pushes its right edge past
-    // the margin and it "flashes outward" before pulling in. Cap dx so the run enters FROM the
-    // margin (right edge at the edge), not from beyond it.
-    const finalRight = measureNaturalLineRight(wrect, pe)   // rightmost char on the committed line = the run's right edge
-    const paraRight  = pe.getBoundingClientRect().right
-    dx = Math.min(dx, Math.max(0, paraRight - finalRight - 1))
+    const dx = beforeRight - wrect.right                // how far the after-run's left moved (>0 ⇒ in from the right)
     if (Math.abs(dx) < 0.5) return
+    // De-compression: during the cycle the after-text was squeezed (letter-spacing -lsAfterEm). The
+    // slide renders it FULL width, so a plain translateX would make it "extend out" past where the
+    // compressed version sat. Instead start it scaled to its COMPRESSED width (scaleX, origin-left)
+    // and ease to 1 in lockstep with the slide: the start then matches the cycle's compressed run
+    // exactly (no overflow, so no dx cap needed) and the de-compression animates instead of popping.
+    const finalRight = measureNaturalLineRight(wrect, pe) // the run's de-compressed right edge
+    const W = finalRight - wrect.right                    // de-compressed after-run width
+    const fsz = parseFloat(getComputedStyle(wordEl).fontSize) || 18
+    const chars = Math.max(1, editor.state.doc.textBetween(committedTo, lineEnd).length)
+    const decompress = (lr?.lsAfterEm ?? 0) * fsz * chars // total width the run gains on de-compress
+    const scaleStart = W > 0 ? Math.max(0.5, Math.min(1, (W - decompress) / W)) : 1
     // 4. INVERT (instant) → reflow → PLAY to 0, through the slide decoration.
-    const slide = { from: committedTo, to: lineEnd, px: dx }
-    onHintChange(null, null, null, false, undefined, slide)
+    const slide = { from: committedTo, to: lineEnd }
+    onHintChange(null, null, null, false, undefined, { ...slide, px: dx, scaleX: scaleStart })
     void (editor.view.dom.querySelector('.scas-slide-after') as HTMLElement | null)?.offsetWidth
-    onHintChange(null, null, null, true, REFLOW_COMMIT_MS, { ...slide, px: 0 })
+    onHintChange(null, null, null, true, REFLOW_COMMIT_MS, { ...slide, px: 0, scaleX: 1 })
     closeTimerRef.current = setTimeout(() => {
       closeTimerRef.current = null
       onHintChange(null, null, null, false, undefined, null)   // drop the slide decoration
