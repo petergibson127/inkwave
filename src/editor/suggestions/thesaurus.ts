@@ -94,13 +94,33 @@ export async function getSynonyms(word: string): Promise<string[]> {
 }
 
 /**
- * Pre-warm the cache for a list of words (called when red highlights are rendered).
- * Fire-and-forget — does not block the UI.
+ * Pre-warm the cache for a list of words (every red word on the page) so a click never waits on a
+ * network round-trip. PACED — a few at a time with a small gap — so a burst of lookups doesn't trip
+ * Datamuse's rate limiter, which would leave some words uncached (the click-lag / mid-drag reset).
+ * Fire-and-forget. Words already cached or already queued are skipped.
  */
+const PREFETCH_BATCH = 4
+const PREFETCH_GAP_MS = 80
+const prefetchQueue: string[] = []
+let prefetchDraining = false
+
 export function prefetchSynonyms(words: string[]): void {
   for (const word of words) {
-    if (!CACHE.has(word.toLowerCase())) {
-      void getSynonyms(word)
+    const key = word.toLowerCase()
+    if (!CACHE.has(key) && !prefetchQueue.includes(key)) prefetchQueue.push(key)
+  }
+  if (!prefetchDraining) void drainPrefetchQueue()
+}
+
+async function drainPrefetchQueue(): Promise<void> {
+  prefetchDraining = true
+  try {
+    while (prefetchQueue.length > 0) {
+      const batch = prefetchQueue.splice(0, PREFETCH_BATCH).filter(w => !CACHE.has(w))
+      if (batch.length) await Promise.all(batch.map(w => getSynonyms(w).catch(() => {})))
+      if (prefetchQueue.length > 0) await new Promise(r => setTimeout(r, PREFETCH_GAP_MS))
     }
+  } finally {
+    prefetchDraining = false
   }
 }
