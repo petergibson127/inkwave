@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import type { Editor } from '@tiptap/react'
 import { getSynonyms } from '../thesaurus'
 import { getFont } from '../textMetrics'
@@ -256,13 +257,18 @@ export function usePopoverLayout(
     // Apply provisional focus immediately (instant, no transition) to prevent the null-gap flash
     // on Tab nav and to give the open animation a clean natural starting box.
     onHintChange(domPos, rect.width, null, false)
-    setCycle({
+    // The focus above made the word transparent SYNCHRONOUSLY (PM); the reel is React state. Because
+    // this runs in a NATIVE pointerdown listener (not a React synthetic event), React would not
+    // guarantee the reel mounts before the browser's next paint — leaving a frame of "transparent
+    // word, no reel" = the word VANISHES then reappears. flushSync commits the reel in the same
+    // paint as the transparency, closing that gap.
+    flushSync(() => setCycle({
       word: lookupWord, from: domPos, to: domPos + displayWord.length,
       synonyms: Array(CYCLE_SIZE).fill(displayWord),
       reelPos: 0, overlay,
       minWidth: rect.width, naturalWidth: rect.width, naturalLeft: rect.left, alignFraction: 0.5,
       naturalTop: rect.top, naturalBottom: rect.bottom, naturalLineRight: natRight,
-    })
+    }))
 
     getSynonyms(lookupWord).then(candidates => {
       // Bail if the cycle closed or another word was focused while fetching.
