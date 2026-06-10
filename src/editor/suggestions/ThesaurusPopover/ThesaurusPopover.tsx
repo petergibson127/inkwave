@@ -251,13 +251,18 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
         t.addEventListener('touchcancel', cleanup)
       }
       openCycleForElement(t)
-      // The open REBUILDS this .scas-red span (PM dispatch destroys it). The browser gave the
-      // pointer an IMPLICIT capture to that span at pointerdown (always for touch; also for pen),
-      // so once it's detached the gesture's pointermove/up events bubble up a now-orphaned tree and
-      // NEVER reach the document-level reel-drag listener — the FIRST press-drag couldn't scroll the
-      // reel (you had to lift and press again on the rebuilt, stable node). Re-capture the pointer to
-      // the editor root (never rebuilt) so events keep flowing and bubble to document as normal.
-      try { edEl.setPointerCapture(e.pointerId) } catch { /* pointer already ended */ }
+      // The open REBUILDS this .scas-red span (PM dispatch destroys it). The browser gives the
+      // pointer an IMPLICIT capture to that span — but per spec it's set AFTER the pointerdown event
+      // finishes dispatching, so a setPointerCapture() we call *synchronously* here gets clobbered by
+      // it on some words (whichever way the per-word rebuild timing falls) → once that span detaches,
+      // the gesture's pointermove/up bubble up an orphaned tree and never reach the document reel-drag
+      // listener = "every second word won't scroll on first click". So re-assert capture on the editor
+      // root (never rebuilt) in a MICROTASK too: that runs after dispatch (after the implicit capture
+      // is set) but before the next pointer event, reliably overriding it. Belt-and-braces: both.
+      const pid = e.pointerId
+      const grab = () => { try { edEl.setPointerCapture(pid) } catch { /* pointer ended */ } }
+      grab()
+      queueMicrotask(grab)
     }
     document.addEventListener('pointerdown', onPointerDown, { capture: true })
     return () => document.removeEventListener('pointerdown', onPointerDown, { capture: true })
