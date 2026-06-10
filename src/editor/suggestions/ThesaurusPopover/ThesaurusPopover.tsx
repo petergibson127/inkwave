@@ -382,14 +382,13 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
     // unreliably on touch pointers. Releasing flings with the gathered velocity and
     // the reel RESTS.
     //
-    // Commit model: a SHORT click (still + quick) commits the rested word. A press-
-    // and-hold — on the word or anywhere else — does NOT commit, so you can keep
-    // changing it (drag to scroll, release to rest, repeat) until a short click.
-    const TAP_PX = 6                                 // pointer travel under this = still
-    const TAP_MS = 250                               // press under this = a short click (commit)
+    // Commit model: a STILL click (no scroll, any duration) commits the rested word. A press-and-
+    // DRAG spins the reel; releasing a drag commits the landed word (or flings). Duration no longer
+    // matters — only whether the pointer moved — so a slow deliberate tap still confirms.
+    const TAP_PX = 6                                 // pointer travel under this = a still click (commit)
     let lastY: number | null = null
     let lastT = 0
-    let downX = 0, downY = 0, downT = 0
+    let downX = 0, downY = 0
     let dragArmed = false   // only a press that STARTS on the word/reel may drag-scroll it
     let lastTapTime = 0, lastTapX = 0, lastTapY = 0   // for manual double-tap detection
     let pushScheduled = false
@@ -399,7 +398,7 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
       requestAnimationFrame(() => { pushScheduled = false; pushReel() })
     }
     function onPointerDown(e: PointerEvent) {
-      downX = e.clientX; downY = e.clientY; downT = e.timeStamp
+      downX = e.clientX; downY = e.clientY
       lastY = null                                   // a drag begins on the first move
       // Arm the drag-to-scroll only if the press lands on the word or the reel — a drag that
       // begins on empty parchment / body text must NOT spin the reel.
@@ -437,7 +436,10 @@ export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintCh
       openedByPointerRef.current = false
       const c = cycleRef.current
       const dist = Math.hypot(e.clientX - downX, e.clientY - downY)
-      if (dist < TAP_PX && e.timeStamp - downT < TAP_MS) {
+      // A still release (no scroll) is a click → confirm, regardless of how long it was held. The
+      // old `< TAP_MS` (250ms) gate meant a slow, deliberate tap fell through BOTH the tap and drag
+      // branches and did nothing — so you had to nudge a pixel (which made it a drag) to commit.
+      if (dist < TAP_PX) {
         // Double-tap (two quick taps near each other) on the open word selects it for
         // deletion. Detected manually — opening rebuilds the word node, so no native dblclick.
         if (c && e.timeStamp - lastTapTime < 320 && Math.hypot(e.clientX - lastTapX, e.clientY - lastTapY) < 16) {
