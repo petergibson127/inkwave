@@ -192,7 +192,14 @@ export function usePopoverLayout(
     const wrect = wordEl.getBoundingClientRect()
     const lineEnd = lineEndPosAfter(wrect, committedTo, pe, editor)
     if (lineEnd <= committedTo) return                 // word sits at the line end → nothing to slide
-    const dx = beforeRight - wrect.right               // how far the after-run's left moved (>0 ⇒ in from the right)
+    let dx = beforeRight - wrect.right                 // how far the after-run's left moved (>0 ⇒ in from the right)
+    // Don't start the run beyond the right margin: de-compressed it is WIDER than the compressed
+    // version that fit on the line during the cycle, so a full-dx invert pushes its right edge past
+    // the margin and it "flashes outward" before pulling in. Cap dx so the run enters FROM the
+    // margin (right edge at the edge), not from beyond it.
+    const finalRight = measureNaturalLineRight(wrect, pe)   // rightmost char on the committed line = the run's right edge
+    const paraRight  = pe.getBoundingClientRect().right
+    dx = Math.min(dx, Math.max(0, paraRight - finalRight - 1))
     if (Math.abs(dx) < 0.5) return
     // 4. INVERT (instant) → reflow → PLAY to 0, through the slide decoration.
     const slide = { from: committedTo, to: lineEnd, px: dx }
