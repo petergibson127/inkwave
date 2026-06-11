@@ -4,7 +4,7 @@ import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { isInVocab } from '../../scas/ranking'
 import type { InkwaveDocument } from '../../types/document'
-import { REFLOW_OPEN_MS, REFLOW_EASE, type LineRange } from '../suggestions/ThesaurusPopover/popoverConstants'
+import { REFLOW_OPEN_MS, REFLOW_EASE, type LineRange, type SlideRange } from '../suggestions/ThesaurusPopover/popoverConstants'
 
 export const RED_HIGHLIGHT_KEY = new PluginKey<DecorationSet>('redHighlight')
 
@@ -32,7 +32,7 @@ export interface HintState {
   // [from,to] — the rest of the committed word's visual line, including any word that rewrapped up
   // onto it — as one inline-block translated by `px`, eased to 0 so the after-text (and the joining
   // word, flush) slides in from the right while the lines below snap. null = inactive.
-  slideRange: { from: number; to: number; px: number; scaleX?: number } | null
+  slideRange: SlideRange | null
 }
 
 interface RedHighlightOptions {
@@ -229,15 +229,27 @@ function buildDecorations(
   // Built post-swap on the FINAL layout, so the inline-block fits its line (no wrap-drop); the
   // translateX is purely visual overflow during the transient. Independent of focusedPos.
   const { slideRange } = hintState
-  if (slideRange && slideRange.to > slideRange.from) {
+  if (slideRange) {
     const tr = hintState.animate ? `transition:transform ${hintState.durationMs}ms ${REFLOW_EASE}` : 'transition:none'
-    const sx = slideRange.scaleX ?? 1
-    // transform-origin left: scaleX expands from the run's left edge (anchored at the committed
-    // word) so the start matches the cycle's compressed run exactly; eases to scaleX(1).
-    decorations.push(Decoration.inline(slideRange.from, slideRange.to, {
-      class: 'scas-slide-after',
-      style: `display:inline-block;transform-origin:left center;transform:translateX(${slideRange.px.toFixed(2)}px) scaleX(${sx.toFixed(4)});${tr}`,
-    }))
+    if (slideRange.to > slideRange.from) {
+      const sx = slideRange.scaleX ?? 1
+      // transform-origin left: scaleX expands from the run's left edge (anchored at the committed
+      // word) so the start matches the cycle's compressed run exactly; eases to scaleX(1).
+      decorations.push(Decoration.inline(slideRange.from, slideRange.to, {
+        class: 'scas-slide-after',
+        style: `display:inline-block;transform-origin:left center;transform:translateX(${slideRange.px.toFixed(2)}px) scaleX(${sx.toFixed(4)});${tr}`,
+      }))
+    }
+    // Before-run on commit: origin-RIGHT (glued to the committed word) so it de-compresses toward
+    // the word, mirroring the after-run — so the LHS animates on commit instead of snapping.
+    const b = slideRange.before
+    if (b && b.to > b.from) {
+      const bsx = b.scaleX ?? 1
+      decorations.push(Decoration.inline(b.from, b.to, {
+        class: 'scas-slide-before',
+        style: `display:inline-block;transform-origin:right center;transform:translateX(${b.px.toFixed(2)}px) scaleX(${bsx.toFixed(4)});${tr}`,
+      }))
+    }
   }
 
   return DecorationSet.create(pmDoc, decorations)

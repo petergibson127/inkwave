@@ -4,7 +4,7 @@ import type { Editor } from '@tiptap/react'
 import { getSynonyms } from '../thesaurus'
 import { getFont } from '../textMetrics'
 import { CYCLE_SIZE, DELETE_SENTINEL, REFLOW_OPEN_MS, REFLOW_COMMIT_MS } from './popoverConstants'
-import type { CycleState, OnHintChange, LineRange } from './popoverConstants'
+import type { CycleState, OnHintChange, LineRange, SlideRange } from './popoverConstants'
 import { posOf, measureNaturalLineRight, computeLineCompressionRange, lineEndPosAfter } from './popoverGeometry'
 import { buildSynonyms } from './popoverFallbacks'
 
@@ -225,41 +225,66 @@ export function usePopoverLayout(
   // glide. The slide is driven by a decoration independent of the cycle, so it survives teardown.
   function commitWithSlide(swap: () => void, from: number, replacementLen: number) {
     clearCloseTimer()
-    const lr = lastLineRangeRef.current   // the open's compression (lsAfterEm) — for the de-compress scale
-    // 1. FIRST — the after-run's left edge before the swap = the focused (expanded) box's right.
+    const lr = lastLineRangeRef.current   // the open's compression — for the de-compress scale
+    // 1. FIRST — the focused (expanded) box's edges: right = after-run's left, left = before-run's right.
     const fe0 = editor.view.dom.querySelector('.scas-focused') as HTMLElement | null
-    const beforeRight = fe0 ? fe0.getBoundingClientRect().right : null
+    const r0 = fe0 ? fe0.getBoundingClientRect() : null
+    const beforeRight = r0 ? r0.right : null
+    const beforeLeft  = r0 ? r0.left  : null
     // 2. LAST — clear the reel/decoration, swap the text (committed text shows immediately, in place).
     onHintChange(null, null)
     swap()
     setCycle(null)
-    if (beforeRight === null) return
-    // 3. Measure the committed word + its visual-line end on the FINAL layout.
+    if (r0 === null) return
+    // 3. Measure the committed word on the FINAL (rewrapped) layout.
     const committedTo = from + replacementLen
     const wordEl = Array.from(editor.view.dom.querySelectorAll<HTMLElement>('.scas-red')).find(el => posOf(el, editor) === from)
     const pe = wordEl?.closest('p')
     if (!wordEl || !pe) return
     const wrect = wordEl.getBoundingClientRect()
-    const lineEnd = lineEndPosAfter(wrect, committedTo, pe, editor)
-    if (lineEnd <= committedTo) return                 // word sits at the line end → nothing to slide
-    const dx = beforeRight - wrect.right                // how far the after-run's left moved (>0 ⇒ in from the right)
-    if (Math.abs(dx) < 0.5) return
-    // De-compression: during the cycle the after-text was squeezed (letter-spacing -lsAfterEm). The
-    // slide renders it FULL width, so a plain translateX would make it "extend out" past where the
-    // compressed version sat. Instead start it scaled to its COMPRESSED width (scaleX, origin-left)
-    // and ease to 1 in lockstep with the slide: the start then matches the cycle's compressed run
-    // exactly (no overflow, so no dx cap needed) and the de-compression animates instead of popping.
-    const finalRight = measureNaturalLineRight(wrect, pe) // the run's de-compressed right edge
-    const W = finalRight - wrect.right                    // de-compressed after-run width
     const fsz = parseFloat(getComputedStyle(wordEl).fontSize) || 18
-    const chars = Math.max(1, editor.state.doc.textBetween(committedTo, lineEnd).length)
-    const decompress = (lr?.lsAfterEm ?? 0) * fsz * chars // total width the run gains on de-compress
-    const scaleStart = W > 0 ? Math.max(0.5, Math.min(1, (W - decompress) / W)) : 1
-    // 4. INVERT (instant) → reflow → PLAY to 0, through the slide decoration.
-    const slide = { from: committedTo, to: lineEnd }
-    onHintChange(null, null, null, false, undefined, { ...slide, px: dx, scaleX: scaleStart })
-    void (editor.view.dom.querySelector('.scas-slide-after') as HTMLElement | null)?.offsetWidth
-    onHintChange(null, null, null, true, REFLOW_COMMIT_MS, { ...slide, px: 0, scaleX: 1 })
+
+    // AFTER-run slide: the rest of the committed word's visual line slides in from the right and
+    // de-compresses (scaleX origin-left) — start at the COMPRESSED width so it doesn't "extend out".
+    let invA:  SlideRange | null = null
+    let playA: SlideRange | null = null
+    if (beforeRight !== null) {
+      const lineEnd = lineEndPosAfter(wrect, committedTo, pe, editor)
+      const dx = beforeRight - wrect.right
+      if (lineEnd > committedTo && Math.abs(dx) >= 0.5) {
+        const W = measureNaturalLineRight(wrect, pe) - wrect.right
+        const chars = Math.max(1, editor.state.doc.textBetween(committedTo, lineEnd).length)
+        const decompress = (lr?.lsAfterEm ?? 0) * fsz * chars
+        const scaleStart = W > 0 ? Math.max(0.5, Math.min(1, (W - decompress) / W)) : 1
+        invA  = { from: committedTo, to: lineEnd, px: dx, scaleX: scaleStart }
+        playA = { from: committedTo, to: lineEnd, px: 0,  scaleX: 1 }
+      }
+    }
+
+    // BEFORE-run slide: the line's text before the committed word de-compresses back to natural
+    // (origin-right, glued to the word) — so the LHS animates on commit instead of snapping.
+    let invB:  SlideRange['before'] = undefined
+    let playB: SlideRange['before'] = undefined
+    if (beforeLeft !== null && lr && lr.firstWordEnd < from) {
+      try {
+        const naturalWb = editor.view.coordsAtPos(from).left - editor.view.coordsAtPos(lr.firstWordEnd).left
+        const bdx = beforeLeft - wrect.left   // how far the before-run's right edge moved (sign = direction)
+        if (naturalWb > 1 && Math.abs(bdx) >= 0.5) {
+          const charsB = Math.max(1, from - lr.firstWordEnd)
+          const decompressB = (lr.lsBeforeEm ?? 0) * fsz * charsB
+          const bScaleStart = Math.max(0.5, Math.min(1, (naturalWb - decompressB) / naturalWb))
+          invB  = { from: lr.firstWordEnd, to: from, px: bdx, scaleX: bScaleStart }
+          playB = { from: lr.firstWordEnd, to: from, px: 0,   scaleX: 1 }
+        }
+      } catch { /* coordsAtPos can throw on edge positions — skip the before-run */ }
+    }
+
+    if (!invA && !invB) return
+    const zero: SlideRange = { from: 0, to: 0, px: 0 }   // empty after-run (render skips to===from)
+    // 4. INVERT (instant) → reflow → PLAY home, through the slide decoration(s).
+    onHintChange(null, null, null, false, undefined, { ...(invA ?? zero), before: invB })
+    void (editor.view.dom.querySelector('.scas-slide-after, .scas-slide-before') as HTMLElement | null)?.offsetWidth
+    onHintChange(null, null, null, true, REFLOW_COMMIT_MS, { ...(playA ?? zero), before: playB })
     closeTimerRef.current = setTimeout(() => {
       closeTimerRef.current = null
       onHintChange(null, null, null, false, undefined, null)   // drop the slide decoration

@@ -69,7 +69,13 @@ export type LineRange = {
 // translateX, `scaleX` the horizontal scale (origin-left) that animates the after-text's
 // de-compression: starting scaled to its compressed width so the slide begins looking exactly like
 // the cycle, easing to 1 (full/de-compressed) — no "extend out" pop. Omitted scaleX = 1.
-export type SlideRange = { from: number; to: number; px: number; scaleX?: number }
+export type SlideRange = {
+  from: number; to: number; px: number; scaleX?: number   // after-run (rendered origin-LEFT)
+  // Optional before-run (the text between the line's first word and the committed word) — rendered
+  // origin-RIGHT (glued to the committed word) so its de-compression animates on commit, mirroring
+  // the after-run, instead of snapping (the "LHS doesn't animate on commit").
+  before?: { from: number; to: number; px: number; scaleX?: number }
+}
 
 export type OnHintChange = (
   pos: number | null,
