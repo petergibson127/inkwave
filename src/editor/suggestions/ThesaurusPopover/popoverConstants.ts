@@ -58,6 +58,11 @@ export type LineRange = {
   afterScaleX?: number  // paired with afterSlidePx: horizontal scale (origin-left) animating the
                         // COMPRESSION as the run slides out on open (starts stretched/de-compressed
                         // >1, eases to 1) — the mirror of the commit's scaleX. Default 1.
+  beforeSlidePx?: number // LHS analogue of afterSlidePx — the before-run is rendered inline-block,
+                         // transform-origin RIGHT (glued to the fixed word), translated by this so it
+                         // animates on the compositor instead of snapping. undefined = plain span.
+  beforeScaleX?: number  // paired with beforeSlidePx: horizontal scale (origin-right) animating the
+                         // before-run's compression/de-compression. Default 1.
 }
 
 // Post-commit slide-in range (see HintState.slideRange in RedHighlightExtension). `px` is the

@@ -193,7 +193,18 @@ function buildDecorations(
       // Apply the span whenever its range exists (even at letter-spacing 0): a 0 span is a
       // visual no-op but must be present so the open/close transition has something to animate.
       if (fwe < fw.from) {
-        decorations.push(Decoration.inline(fwe, fw.from, { class: 'scas-comp-before', style: `letter-spacing: -${lsBeforeEm.toFixed(4)}em${lsTransition}` }))
+        // Mirror of the after-run, but transform-origin RIGHT: the before-run's right edge is glued
+        // to the (fixed) focused word, so it compresses/de-compresses toward the word. When
+        // beforeSlidePx is set (FLIP), render it as a transformable inline-block carrying the invert
+        // translateX + scaleX and transition the TRANSFORM (compositor, lag-free) — so the LHS
+        // animates instead of snapping. Otherwise a plain inline letter-spacing span.
+        const bslide = lineCompressionRange.beforeSlidePx
+        const bsx = lineCompressionRange.beforeScaleX ?? 1
+        const beforeStyle = bslide !== undefined
+          ? `letter-spacing: -${lsBeforeEm.toFixed(4)}em;display:inline-block;transform-origin:right center;transform:translateX(${bslide.toFixed(2)}px) scaleX(${bsx.toFixed(4)});` +
+            (hintState.animate ? `transition:transform ${hintState.durationMs}ms ${REFLOW_EASE}` : 'transition:none')
+          : `letter-spacing: -${lsBeforeEm.toFixed(4)}em${lsTransition}`
+        decorations.push(Decoration.inline(fwe, fw.from, { class: 'scas-comp-before', style: beforeStyle }))
       }
       if (fw.to < lt) {
         // The after-run carries a stable class so the FLIP commit (?flip=1) can find it.

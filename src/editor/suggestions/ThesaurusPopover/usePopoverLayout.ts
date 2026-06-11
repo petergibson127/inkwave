@@ -81,31 +81,49 @@ export function usePopoverLayout(
     // the word — so its own snap isn't seen), then slide the after-run in from where it sat at
     // natural width and ease the COMPRESSION on with scaleX. So the after-text appears to glide OUT
     // to make room rather than teleporting. (min-width can't transition cheaply — that was the lag.)
-    if (animate && minWidth > naturalWidth && lineRange && to < (lineRange.to)) {
-      const naturalAfterLeft = rect.right                       // after-run's left at natural width
+    if (animate && minWidth > naturalWidth && lineRange) {
+      const naturalAfterLeft  = rect.right                      // after-run's left edge at natural width
+      const naturalBeforeRight = rect.left                      // before-run's right edge at natural width
       const fsz = parseFloat(window.getComputedStyle(fe).fontSize) || 18
       onHintChange(from, minWidth, lineRange, false)            // apply expanded + compressed layout instantly
-      const feNow = editor.view.dom.querySelector('.scas-focused') as HTMLElement | null
-      const comp  = editor.view.dom.querySelector('.scas-comp-after') as HTMLElement | null
-      if (feNow && comp) {
-        const dx     = feNow.getBoundingClientRect().right - naturalAfterLeft  // >0: after-run pushed right
-        const compW  = Math.max(1, comp.getBoundingClientRect().width)
-        // scaleStart from the COMPRESSION AMOUNT (lsAfterEm·fsz·chars), not a width ratio — a ratio
-        // is corrupted when the line rewraps on open (different content). De-compressed width =
-        // compW + that amount; start there, ease to 1. Capped at +50% so it never looks stretched.
-        const chars  = Math.max(1, lineRange.to - to)
+      const compA = editor.view.dom.querySelector('.scas-comp-after')  as HTMLElement | null
+      const compB = editor.view.dom.querySelector('.scas-comp-before') as HTMLElement | null
+      const inv:  LineRange = { ...lineRange }
+      const play: LineRange = { ...lineRange }
+      let anyAnim = false
+      // AFTER run (origin-left): slid right + compressed. scaleStart from the COMPRESSION AMOUNT
+      // (lsAfterEm·fsz·chars), NOT a width ratio — a ratio breaks when the line rewraps on open.
+      if (compA && to < lineRange.to) {
+        const dx    = compA.getBoundingClientRect().left - naturalAfterLeft  // >0: after-run pushed right
+        const compW = Math.max(1, compA.getBoundingClientRect().width)
+        const chars = Math.max(1, lineRange.to - to)
         const decompress = (lineRange.lsAfterEm || 0) * fsz * chars
         const scaleStart = Math.max(1, Math.min(1.5, (compW + decompress) / compW))
         if (Math.abs(dx) > 0.5 || scaleStart > 1.01) {
-          onHintChange(from, minWidth, { ...lineRange, afterSlidePx: -dx, afterScaleX: scaleStart }, false) // invert
-          void comp.offsetWidth
-          onHintChange(from, minWidth, { ...lineRange, afterSlidePx: 0, afterScaleX: 1 }, true, REFLOW_OPEN_MS) // play out
-          return
+          inv.afterSlidePx = -dx; inv.afterScaleX = scaleStart; play.afterSlidePx = 0; play.afterScaleX = 1; anyAnim = true
         }
       }
-    } else {
-      onHintChange(from, minWidth, lineRange, false)    // no animation (or nothing to slide) → instant
+      // BEFORE run (origin-right, glued to the fixed word): its right edge slid LEFT (the box centred
+      // itself) and it compressed. Restore it to natural at start (slide right by the shift, scale to
+      // natural width) and ease home — so the LHS animates instead of snapping (the "static flash").
+      if (compB && lineRange.firstWordEnd < from) {
+        const bShift = naturalBeforeRight - compB.getBoundingClientRect().right  // >0: before-right moved left
+        const compWb = Math.max(1, compB.getBoundingClientRect().width)
+        const charsB = Math.max(1, from - lineRange.firstWordEnd)
+        const decompressB = (lineRange.lsBeforeEm || 0) * fsz * charsB
+        const bScaleStart = Math.max(1, Math.min(1.5, (compWb + decompressB) / compWb))
+        if (Math.abs(bShift) > 0.5 || bScaleStart > 1.01) {
+          inv.beforeSlidePx = bShift; inv.beforeScaleX = bScaleStart; play.beforeSlidePx = 0; play.beforeScaleX = 1; anyAnim = true
+        }
+      }
+      if (anyAnim) {
+        onHintChange(from, minWidth, inv, false)                                          // invert, instant
+        void (editor.view.dom.querySelector('.scas-comp-after, .scas-comp-before') as HTMLElement | null)?.offsetWidth
+        onHintChange(from, minWidth, play, true, REFLOW_OPEN_MS)                           // play home
+        return
+      }
     }
+    onHintChange(from, minWidth, lineRange, false)    // no animation (or nothing to slide) → instant
   }
 
   // Animate the reflow back to natural, then tear the cycle down. Called on dismiss/commit so
@@ -126,10 +144,11 @@ export function usePopoverLayout(
     // back there afterwards and ease it home. The focused word's right edge IS the after-run's
     // left edge (they're adjacent), so one measurement captures the whole slide.
     const flip = wantsFlip()
-    let beforeRight: number | null = null
+    let afterRight0: number | null = null      // focused word's right edge (= after-run's left) BEFORE the snap
+    let beforeWordLeft0: number | null = null  // focused word's left edge (= before-run's right) BEFORE the snap
     if (flip) {
       const fe = editor.view.dom.querySelector('.scas-focused') as HTMLElement | null
-      beforeRight = fe ? fe.getBoundingClientRect().right : null
+      if (fe) { const r = fe.getBoundingClientRect(); afterRight0 = r.right; beforeWordLeft0 = r.left }
     }
 
     // Settle the surrounding text to natural INSTANTLY (no per-frame reflow — the lag). The word
@@ -137,35 +156,54 @@ export function usePopoverLayout(
     // ThesaurusPopover), so the part the eye is on glides while the rest just resolves.
     onHintChange(c.from, targetWidth ?? c.naturalWidth, lr ? { ...lr, lsBeforeEm: 0, lsAfterEm: 0 } : null, false)
 
-    // FLIP play: the snap above moved the after-text to its final spot in one reflow. Now measure
-    // how far it travelled (the focused word's right edge IS the after-run's left edge), then
-    // re-render the after-run inverted (translateX back to where it was, transition off) and — after
-    // a forced reflow — at 0 with the transition armed. The run eases home on the compositor with no
-    // further layout. Done through the DECORATION (two onHintChange dispatches) so PM keeps the
-    // transform; a manual DOM edit is reverted by PM's reconciler within a frame.
-    if (flip && beforeRight !== null && lr) {
+    // FLIP play: the snap above moved BOTH runs to their natural spots in one reflow. Re-render each
+    // run inverted to where it sat while open (offset + compressed via scaleX), then — after a forced
+    // reflow — at identity with the transition armed, so both ease home on the compositor AND the
+    // de-compression animates (no one-frame widening = no "flash backwards", no LHS "static flash").
+    // Driven through the DECORATION so PM keeps the transform (a manual DOM edit is reverted).
+    if (flip && lr) {
       const fe = editor.view.dom.querySelector('.scas-focused') as HTMLElement | null
       const pe = fe?.closest('p')
-      const afterSpan = pe?.querySelector('.scas-comp-after') as HTMLElement | null
-      const dx = fe ? beforeRight - fe.getBoundingClientRect().right : 0
-      // Only slide if the de-compressed after-run still sits on ONE line within the right margin.
-      // If a longer commit has filled/overflowed the line, making the run display:inline-block (it
-      // must be, to carry the transform) would drop the WHOLE atomic run to the next line mid-slide
-      // — the end-of-line comma "wrapping away and back", and lower-line words appearing to move.
-      // In that case skip the slide entirely: the line just snaps to its rewrapped layout. (The
-      // "joining word slides in from the right" treatment is a separate, later step.)
-      let fits = true
-      if (fe && afterSpan && pe) {
+      const afterSpan  = pe?.querySelector('.scas-comp-after')  as HTMLElement | null
+      const beforeSpan = pe?.querySelector('.scas-comp-before') as HTMLElement | null
+      const fsz = fe ? (parseFloat(getComputedStyle(fe).fontSize) || 18) : 18
+      const inv:  Partial<LineRange> = { lsBeforeEm: 0, lsAfterEm: 0 }
+      const play: Partial<LineRange> = { lsBeforeEm: 0, lsAfterEm: 0 }
+      let anyAnim = false
+      // AFTER run recedes LEFT + de-compresses. Only if it still sits on ONE line inside the margin —
+      // else making it inline-block would wrap-drop the whole run to the next line mid-slide (the
+      // end-of-line comma "wrapping away and back", lower lines appearing to move).
+      if (fe && afterSpan && pe && afterRight0 !== null) {
         const ar = afterSpan.getBoundingClientRect()
         const fh = fe.getBoundingClientRect().height || 1
-        const paraRight = pe.getBoundingClientRect().right
-        fits = ar.height < fh * 1.5 && ar.right <= paraRight + 1   // single line, inside the margin
+        const fits = ar.height < fh * 1.5 && ar.right <= pe.getBoundingClientRect().right + 1
+        const dx = afterRight0 - fe.getBoundingClientRect().right   // >0: after-run was further right
+        if (fits && Math.abs(dx) > 0.5) {
+          const W = Math.max(1, ar.width)
+          const decompress = (lr.lsAfterEm || 0) * fsz * Math.max(1, lr.to - c.to)
+          inv.afterSlidePx = dx;  inv.afterScaleX = Math.max(0.5, Math.min(1, (W - decompress) / W))
+          play.afterSlidePx = 0;  play.afterScaleX = 1
+          anyAnim = true
+        }
       }
-      if (fe && afterSpan && fits && Math.abs(dx) > 0.5) {
-        const flat = { ...lr, lsBeforeEm: 0, lsAfterEm: 0 }
-        onHintChange(c.from, targetWidth ?? c.naturalWidth, { ...flat, afterSlidePx: dx }, false)   // invert, instant
-        void afterSpan.offsetWidth                                                                  // commit the start
-        onHintChange(c.from, targetWidth ?? c.naturalWidth, { ...flat, afterSlidePx: 0 }, true, REFLOW_COMMIT_MS) // play home
+      // BEFORE run de-compresses back (origin-right): its right edge moves RIGHT to the word's natural
+      // left. Invert puts it at the compressed (leftward) position + compressed width, then eases home.
+      if (fe && beforeSpan && beforeWordLeft0 !== null && lr.firstWordEnd < c.from) {
+        const bdx = beforeWordLeft0 - fe.getBoundingClientRect().left   // <0: before-right was further left
+        const Wb = Math.max(1, beforeSpan.getBoundingClientRect().width)
+        const decompressB = (lr.lsBeforeEm || 0) * fsz * Math.max(1, c.from - lr.firstWordEnd)
+        const bScaleStart = Math.max(0.5, Math.min(1, (Wb - decompressB) / Wb))
+        if (Math.abs(bdx) > 0.5 || bScaleStart < 0.99) {
+          inv.beforeSlidePx = bdx;  inv.beforeScaleX = bScaleStart
+          play.beforeSlidePx = 0;   play.beforeScaleX = 1
+          anyAnim = true
+        }
+      }
+      if (anyAnim) {
+        const w = targetWidth ?? c.naturalWidth
+        onHintChange(c.from, w, { ...lr, ...inv } as LineRange, false)   // invert, instant
+        void (editor.view.dom.querySelector('.scas-comp-after, .scas-comp-before') as HTMLElement | null)?.offsetWidth
+        onHintChange(c.from, w, { ...lr, ...play } as LineRange, true, REFLOW_COMMIT_MS)  // play home
       }
     }
 
