@@ -4,6 +4,7 @@ import {
   lemmaOf,
   inPool,
   classifyCommit,
+  recordKick,
   markSatisfied,
   lock,
   discharge,
@@ -11,7 +12,7 @@ import {
   isLocked,
   isImmune,
 } from './engine'
-import { emptyScasState, buildLookup, isSuppressedFromSuggestions } from './state'
+import { emptyScasState, buildLookup, isColoured, isSuppressedFromSuggestions } from './state'
 import { POOL, POOL_SET } from './pool'
 import type { ScasState } from '../types/document'
 
@@ -175,6 +176,38 @@ describe('purity / no retroactive churn', () => {
     s = resample(s, 7)
     const after = classifyCommit(s, 'x', false)
     expect(after).toEqual(before)
+  })
+})
+
+describe('liveKicks (outstanding-kick colouring)', () => {
+  it('recordKick marks an in-S kick as coloured; resolving clears it', () => {
+    let s = emptyScasState()
+    const L = 'idea'
+    s = recordKick(s, L)
+    expect(isColoured(buildLookup(s), L)).toBe(true)
+    s = markSatisfied(s, L) // swap / dismiss
+    expect(isColoured(buildLookup(s), L)).toBe(false)
+  })
+
+  it('a live kick survives a resample (rotation does not de-colour committed text)', () => {
+    let s = recordKick(emptyScasState(), 'idea')
+    s = resample(s, 1)
+    expect(isColoured(buildLookup(s), 'idea')).toBe(true)
+  })
+
+  it('deleting a live kick moves the colour from liveKicks to locked', () => {
+    let s = recordKick(emptyScasState(), 'idea')
+    s = lock(s, 'idea')
+    const lk = buildLookup(s)
+    expect(lk.liveKicks.has('idea')).toBe(false)
+    expect(lk.locked.has('idea')).toBe(true)
+    expect(isColoured(lk, 'idea')).toBe(true) // still purple, now forced
+  })
+
+  it('recordKick is idempotent', () => {
+    let s = recordKick(emptyScasState(), 'idea')
+    s = recordKick(s, 'idea')
+    expect(s.liveKicks).toEqual(['idea'])
   })
 })
 

@@ -152,25 +152,36 @@ export function isLocked(state: ScasState, lemma: string): boolean {
 // ── State transitions (all return a NEW state; inputs are never mutated) ─────────
 
 /**
+ * Freeze an in-S kick: record the lemma as an outstanding live kick so it stays purple across
+ * S-rotation and reload without recomputing membership. Idempotent. Call when `classifyCommit`
+ * returns a kick with trigger 'in-S' (locked kicks colour via the `locked` set, not this).
+ */
+export function recordKick(state: ScasState, lemma: string): ScasState {
+  if (state.liveKicks.includes(lemma)) return state
+  return { ...state, liveKicks: [...state.liveKicks, lemma] }
+}
+
+/**
  * Resolve an in-S kick *in place* (typed-and-kept, swapped, justified, or dismissed): the lemma
- * becomes Satisfied and is immune until the next resample. Idempotent; refreshes immunity to the
- * current version.
+ * becomes Satisfied and is immune until the next resample, and stops being an outstanding kick.
+ * Idempotent; refreshes immunity to the current version.
  */
 export function markSatisfied(state: ScasState, lemma: string): ScasState {
   const satisfied = state.satisfied.filter((s) => s.lemma !== lemma)
   satisfied.push({ lemma, satisfiedAtVersion: state.version })
-  return { ...state, satisfied }
+  return { ...state, satisfied, liveKicks: state.liveKicks.filter((l) => l !== lemma) }
 }
 
 /**
  * The writer deleted a kicked word (a dodge attempt) → add the lemma to the ban-credit set `B`.
  * Now it kicks on every commit regardless of S_v and is suppressed from all suggestion popovers,
- * until discharged. Also clears any stale satisfied entry. Idempotent.
+ * until discharged. Clears any stale satisfied entry and the live-kick marker (it now colours via
+ * `locked`). Idempotent.
  */
 export function lock(state: ScasState, lemma: string): ScasState {
   const locked = state.locked.includes(lemma) ? state.locked : [...state.locked, lemma]
   const satisfied = state.satisfied.filter((s) => s.lemma !== lemma)
-  return { ...state, locked, satisfied }
+  return { ...state, locked, satisfied, liveKicks: state.liveKicks.filter((l) => l !== lemma) }
 }
 
 /**
@@ -180,7 +191,11 @@ export function lock(state: ScasState, lemma: string): ScasState {
  */
 export function discharge(state: ScasState, lemma: string): ScasState {
   if (!state.locked.includes(lemma)) return state
-  return { ...state, locked: state.locked.filter((l) => l !== lemma) }
+  return {
+    ...state,
+    locked: state.locked.filter((l) => l !== lemma),
+    liveKicks: state.liveKicks.filter((l) => l !== lemma),
+  }
 }
 
 /**

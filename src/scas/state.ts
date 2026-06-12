@@ -12,7 +12,7 @@ import { isImmune, isLocked } from './engine'
 export const DEFAULT_SET_SIZE = 300
 
 export function emptyScasState(): ScasState {
-  return { version: 0, locked: [], satisfied: [] }
+  return { version: 0, locked: [], satisfied: [], liveKicks: [] }
 }
 
 /** Coerce possibly-missing/partial persisted state into a valid ScasState. */
@@ -24,6 +24,7 @@ export function normalizeScasState(s: Partial<ScasState> | undefined | null): Sc
     satisfied: Array.isArray(s.satisfied)
       ? s.satisfied.filter((e) => e && typeof e.lemma === 'string')
       : [],
+    liveKicks: Array.isArray(s.liveKicks) ? [...new Set(s.liveKicks)] : [],
   }
 }
 
@@ -51,6 +52,8 @@ export function withScasDefaults(doc: InkwaveDocument): InkwaveDocument {
 export interface ScasLookup {
   version: number
   locked: ReadonlySet<string>
+  /** outstanding unresolved in-S kicks (frozen at commit). */
+  liveKicks: ReadonlySet<string>
   /** lemmas immune at the current version (satisfied this version). */
   immune: ReadonlySet<string>
 }
@@ -60,7 +63,17 @@ export function buildLookup(state: ScasState): ScasLookup {
   for (const s of state.satisfied) {
     if (s.satisfiedAtVersion === state.version) immune.add(s.lemma)
   }
-  return { version: state.version, locked: new Set(state.locked), immune }
+  return {
+    version: state.version,
+    locked: new Set(state.locked),
+    liveKicks: new Set(state.liveKicks),
+    immune,
+  }
+}
+
+/** A lemma is coloured purple iff it is Locked (forced) or an outstanding live kick. */
+export function isColoured(lookup: ScasLookup, lemma: string): boolean {
+  return lookup.locked.has(lemma) || lookup.liveKicks.has(lemma)
 }
 
 /**

@@ -51,6 +51,10 @@ export interface ScasState {
   version: number                  // current S-version v
   locked: string[]                 // ban-credit set B (lemmas) — state "Locked"
   satisfied: SatisfiedEntry[]      // resolved-in-place lemmas, immune for their version
+  liveKicks: string[]              // outstanding, unresolved in-S kicks (lemmas). Frozen at commit
+                                   // so the word stays purple across S-rotation and reload without
+                                   // recomputing membership; cleared when resolved (swap/dismiss) or
+                                   // moved to `locked` on delete. Locked lemmas colour via `locked`.
 }
 
 // ─── Paragraph metadata ───────────────────────────────────────────────────────
