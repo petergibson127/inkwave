@@ -72,14 +72,17 @@ Package manager is **pnpm** (`packageManager: pnpm@10.33.2`), not npm.
   machine. `RedHighlightExtension` now *renders* engine state (locked ∪ liveKicks) instead
   of recomputing vocab. Delete a kicked word → it locks (forced kick on retype, suppressed
   from popovers); swap → resolves; verdicts freeze at commit so `S_v` rotation never
-  reflows committed text. Unit-tested (`scas/engine.test.ts`, the repo's first tests) +
-  browser-verified. Next: M1 (snapshots + local hashing).
-- **Week 3 — Snapshots + provenance: NOT STARTED** (now tracked as M1+ of the spine).
-  Only an `appendEventLog` stub exists in `opfs.ts`. No `snapshots.ts`, no `provenance/`
-  module yet.
+  reflows committed text. Unit-tested (`scas/engine.test.ts`) + browser-verified.
+- **Provenance spine M1 — snapshots + local hashing: DONE.** `provenance/hash.ts`
+  (RFC 8785 JCS + SHA-256 + bundleHash), `provenance/kicks.ts` (KickEvent emitter),
+  `provenance/snapshots.ts` (OPFS append-only store; snapshot on a resolved kick when
+  the contentHash changed — typing/pastes never snapshot), `components/ReceiptPanel.tsx`.
+  Offline, no network; `ots:unstamped` until M2. Unit-tested (`hash.test.ts`) +
+  browser-verified (accrues on resolution, persists across reload). Next: M2
+  (OpenTimestamps → Bitcoin).
 - **Week 4 — Glyphs, dashboard, certification: NOT STARTED.** No `glyphList.ts`,
-  `ParagraphGlyphExtension`, `GlyphDashboard`, or certification PDF/QR. Glyphs are the
-  stated v0.1 *differentiator* — don't trim them.
+  `ParagraphGlyphExtension`, `GlyphDashboard`, or certification PDF/QR. Per the v4 spec's
+  out-of-scope list these are later/Phase-2; the spine (M2–M6) comes first.
 
 ## Code map
 
