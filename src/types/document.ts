@@ -19,8 +19,42 @@ export interface InkwaveDocument {
   createdAt: string                // ISO 8601
   updatedAt: string                // ISO 8601
   schemaVersion: SchemaVersion
-  scasLimitN: number | 'infinite'  // active SCAS vocabulary cap (Week 2)
+  scasLimitN: number | 'infinite'  // active SCAS vocabulary cap (Week 2 — old per-paragraph model)
   scasSessionSeed: string          // deterministic-per-document ranking seed (Week 2)
+
+  // ─── SCAS v2 / provenance spine (M0+) ──────────────────────────────────────
+  // The engine (src/scas/engine.ts + state.ts) supersedes the Week-2 per-paragraph
+  // rank-perturbation model. These are optional so pre-M0 documents still load;
+  // src/routes/Edit.tsx fills defaults on open (see migrateDocument).
+  scasMode?: ScasMode              // v0.1: 'n' (N-mode) only
+  scasSetSize?: number             // |S| — fixed exclusion-set size in N-mode (e.g. 300)
+  scasSeedRef?: string             // M0: a local seed (stand-in); M3: opaque server ref. The seed
+                                   // itself never reaches the client once the signing service exists.
+  scasPoolId?: string              // id + hash of the public pool P (reproducibility)
+  scasState?: ScasState            // the ban-credit / satisfied / version overlay (persisted)
+}
+
+// ─── SCAS engine state (M0) ───────────────────────────────────────────────────
+// The client-side overlay on top of S_v membership: which lemmas are Locked (ban-credit
+// outstanding) and which are Satisfied (immune until the next resample). `S_v` itself is a
+// pure function of the seed and is NOT stored here. The verifier replays this overlay from
+// the logged kick events; it is never folded into the seed derivation. See v4 spec §4.3/§8.
+
+export type ScasMode = 'n'
+
+export interface SatisfiedEntry {
+  lemma: string
+  satisfiedAtVersion: number       // immune while this === ScasState.version
+}
+
+export interface ScasState {
+  version: number                  // current S-version v
+  locked: string[]                 // ban-credit set B (lemmas) — state "Locked"
+  satisfied: SatisfiedEntry[]      // resolved-in-place lemmas, immune for their version
+  liveKicks: string[]              // outstanding, unresolved in-S kicks (lemmas). Frozen at commit
+                                   // so the word stays purple across S-rotation and reload without
+                                   // recomputing membership; cleared when resolved (swap/dismiss) or
+                                   // moved to `locked` on delete. Locked lemmas colour via `locked`.
 }
 
 // ─── Paragraph metadata ───────────────────────────────────────────────────────

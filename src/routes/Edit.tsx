@@ -5,13 +5,14 @@ import { Scroll, EmptyEditorSurface } from '../editor/Scroll'
 import type { InkwaveDocument } from '../types/document'
 import { loadDocument, emptyTiptapDoc } from '../storage/opfs'
 import { listMeta } from '../storage/indexeddb'
+import { withScasDefaults } from '../scas/state'
 
 // The active document ID is persisted in localStorage so the same document
 // reopens on refresh. (Content itself is in OPFS — this is just the pointer.)
 const ACTIVE_DOC_KEY = 'inkwave:activeDocumentId'
 
 function newDocument(): InkwaveDocument {
-  return {
+  return withScasDefaults({
     id: uuidv4(),
     title: 'Untitled',
     contentJson: emptyTiptapDoc(),
@@ -20,12 +21,12 @@ function newDocument(): InkwaveDocument {
     schemaVersion: '0.1.0',
     scasLimitN: 'infinite',
     scasSessionSeed: uuidv4(),
-  }
+  })
 }
 
-// Fill in fields for documents saved before they existed.
+// Fill in fields for documents saved before they existed (incl. the SCAS engine state).
 function migrateDocument(doc: InkwaveDocument): InkwaveDocument {
-  return Object.assign({ scasLimitN: 'infinite', scasSessionSeed: uuidv4() }, doc)
+  return withScasDefaults(Object.assign({ scasLimitN: 'infinite', scasSessionSeed: uuidv4() }, doc))
 }
 
 export function Edit() {

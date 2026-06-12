@@ -2,7 +2,8 @@ import { Extension } from '@tiptap/react'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import type { Node as PMNode } from '@tiptap/pm/model'
-import { isInVocab } from '../../scas/ranking'
+import { lemmaOf } from '../../scas/engine'
+import { isColoured, type ScasLookup } from '../../scas/state'
 import type { InkwaveDocument } from '../../types/document'
 import { REFLOW_OPEN_MS, REFLOW_EASE, type LineRange, type SlideRange } from '../suggestions/ThesaurusPopover/popoverConstants'
 
@@ -35,9 +36,17 @@ export interface HintState {
   slideRange: SlideRange | null
 }
 
+const EMPTY_LOOKUP: ScasLookup = {
+  version: 0,
+  locked: new Set(),
+  liveKicks: new Set(),
+  immune: new Set(),
+}
+
 interface RedHighlightOptions {
   getDoc: () => InkwaveDocument
   getHintState: () => HintState
+  getScasLookup: () => ScasLookup
 }
 
 export const RedHighlightExtension = Extension.create<RedHighlightOptions>({
@@ -47,22 +56,23 @@ export const RedHighlightExtension = Extension.create<RedHighlightOptions>({
     return {
       getDoc: () => { throw new Error('RedHighlightExtension: getDoc option is required') },
       getHintState: () => ({ focusedPos: null, showHints: true, focusedMinWidth: null, lineCompressionRange: null, animate: true, durationMs: REFLOW_OPEN_MS, slideRange: null }),
+      getScasLookup: () => EMPTY_LOOKUP,
     }
   },
 
   addProseMirrorPlugins() {
-    const { getDoc, getHintState } = this.options
+    const { getDoc, getHintState, getScasLookup } = this.options
     return [
       new Plugin({
         key: RED_HIGHLIGHT_KEY,
         state: {
           init(_, state) {
-            return buildDecorations(state.doc, getDoc(), state.selection.from, getHintState())
+            return buildDecorations(state.doc, getDoc(), state.selection.from, getHintState(), getScasLookup())
           },
           apply(tr, old, prev, next) {
             return !tr.docChanged && tr.selection.eq(prev.selection) && !tr.getMeta(SCAS_HINT_META)
               ? old
-              : buildDecorations(next.doc, getDoc(), next.selection.from, getHintState())
+              : buildDecorations(next.doc, getDoc(), next.selection.from, getHintState(), getScasLookup())
           },
         },
         props: {
@@ -92,11 +102,15 @@ function buildDecorations(
   inkDoc: InkwaveDocument,
   cursorPos: number,
   hintState: HintState,
+  lookup: ScasLookup,
 ): DecorationSet {
-  const { scasLimitN, scasSessionSeed } = inkDoc
-  if (scasLimitN === 'infinite') return DecorationSet.empty
+  // SCAS engine off (un-migrated or non-N-mode) → no decorations.
+  if (inkDoc.scasMode !== 'n' || !inkDoc.scasState) return DecorationSet.empty
 
-  // ── 1. Collect out-of-vocab words (skip uncommitted cursor word) ──────────
+  // ── 1. Collect kicked words (skip the uncommitted word under the cursor) ──────
+  // A word is purple iff its lemma is Locked or an outstanding live kick — the frozen verdict
+  // from the SCAS controller, NOT a recompute against the current S_v (so rotation never reflows
+  // already-committed text). `lemmaOf` collapses inflections to the state key.
   const redWords: RedWord[] = []
   let paragraphIndex = 0
 
@@ -108,8 +122,8 @@ function buildDecorations(
     node.forEach((child: PMNode, offset: number) => {
       if (!child.isText || !child.text) return
       const text = child.text
-      // A SCAS-managed run (a previously-cycled word) stays red regardless of vocab,
-      // and its synonym list stays anchored to the original word stored on the mark.
+      // The slot mark anchors a cycled word's synonym list to its original; it no longer forces
+      // colour — colour is driven entirely by engine state.
       const slotMark = child.marks.find(m => m.type.name === 'scasSlot')
       const slotOriginal = (slotMark?.attrs.original as string | null) ?? null
       let match: RegExpExecArray | null
@@ -120,15 +134,13 @@ function buildDecorations(
         const from = pos + 1 + offset + match.index
         const to   = from + word.length
 
-        if (!slotMark) {
-          // Skip the word under the cursor unless it's already been committed
-          // (committed = a space or punctuation immediately follows it).
-          if (cursorPos >= from && cursorPos <= to) {
-            const nextChar = text[match.index + word.length] ?? null
-            if (!nextChar || !/[\s.,;:!?)\-'"…]/.test(nextChar)) continue
-          }
-          if (isInVocab(word, pIdx, scasSessionSeed, scasLimitN)) continue
+        // Skip the word under the cursor unless it's already committed (a boundary char follows).
+        if (cursorPos >= from && cursorPos <= to) {
+          const nextChar = text[match.index + word.length] ?? null
+          if (!nextChar || !/[\s.,;:!?)\-'"…]/.test(nextChar)) continue
         }
+
+        if (!isColoured(lookup, lemmaOf(word))) continue
 
         redWords.push({
           from, to, pIdx, word, seqInPara: ++seqInPara,

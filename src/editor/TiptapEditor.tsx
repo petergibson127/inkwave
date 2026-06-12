@@ -22,6 +22,11 @@ import { OptionsMenu } from '../components/OptionsMenu'
 import { StyleBar } from '../components/StyleBar'
 import { GuideMenu } from '../components/GuideMenu'
 import { ComplianceContext, useComplianceProvider } from '../scas/compliance'
+import { ScasController } from '../scas/controller'
+import { normalizeScasState, DEFAULT_SET_SIZE } from '../scas/state'
+
+// Wall-clock resample cadence for the rotating exclusion set S_v (v4 spec §4.2: 20–60 s).
+const RESAMPLE_INTERVAL_MS = 30_000
 
 interface TiptapEditorProps {
   doc: InkwaveDocument
@@ -33,6 +38,21 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   useEffect(() => {
     docRef.current = doc
   }, [doc])
+
+  // The SCAS engine controller (live state mirrored to doc.scasState for persistence). Created
+  // lazily so it survives re-renders; reseated when the active document changes (see effect below).
+  const scasRef = useRef<ScasController>()
+  if (!scasRef.current) {
+    scasRef.current = new ScasController(
+      normalizeScasState(doc.scasState),
+      doc.scasSeedRef ?? doc.scasSessionSeed,
+      doc.id,
+      doc.scasSetSize ?? DEFAULT_SET_SIZE,
+    )
+  }
+  // Document content size last seen by onTransaction — a drop means content was deleted, which
+  // gates the ban-credit lock detection (so a not-yet-committed word isn't mistaken for a delete).
+  const prevDocSizeRef = useRef(-1)
 
   const [currentParagraphIndex, setCurrentParagraphIndex] = useState(0)
   const [showHints, setShowHints] = useState(true)
@@ -124,6 +144,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
       RedHighlightExtension.configure({
         getDoc: () => docRef.current,
         getHintState: () => hintStateRef.current,
+        getScasLookup: () => scasRef.current!.lookup(),
       }),
     ],
     content: doc.contentJson,
@@ -134,13 +155,34 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
         spellcheck: 'false',
       },
     },
-    onTransaction: ({ editor: e }) => {
+    onTransaction: ({ editor: e, transaction }) => {
       const current = docRef.current
+
+      // ── SCAS: drive the engine off the committed words ───────────────────────
+      // Only on a real content change (skip the no-op SCAS_HINT_META repaint we dispatch below,
+      // which would otherwise re-enter here with docChanged=false).
+      let scasState = current.scasState
+      if (transaction.docChanged) {
+        const scas = scasRef.current!
+        const size = e.state.doc.content.size
+        const hadDeletion = prevDocSizeRef.current >= 0 && size < prevDocSizeRef.current
+        prevDocSizeRef.current = size
+        if (scas.processDoc(e.state.doc, e.state.selection.from, hadDeletion)) {
+          scasState = scas.state
+          // The decoration plugin already ran for THIS transaction with the pre-update lookup;
+          // repaint with the new state in a microtask (avoids dispatching mid-dispatch).
+          queueMicrotask(() => {
+            if (!e.isDestroyed) e.view.dispatch(e.state.tr.setMeta(SCAS_HINT_META, true))
+          })
+        }
+      }
+
       const updated: InkwaveDocument = {
         ...current,
         contentJson: e.getJSON(),
         updatedAt: new Date().toISOString(),
         title: deriveTitle(e.getText()) || current.title,
+        scasState,
       }
       docRef.current = updated
       onDocChange(updated)
@@ -172,6 +214,18 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   // Keep editorRef in sync so the hint-change handler can reach the editor.
   useEffect(() => {
     editorRef.current = editor
+  }, [editor])
+
+  // DEV-ONLY: expose SCAS internals for manual/automated inspection. Stripped from prod builds.
+  useEffect(() => {
+    if (import.meta.env.DEV && editor) {
+      ;(window as unknown as { __scas?: unknown }).__scas = {
+        get state() { return scasRef.current!.state },
+        get lookup() { const l = scasRef.current!.lookup(); return { version: l.version, locked: [...l.locked], liveKicks: [...l.liveKicks], immune: [...l.immune] } },
+        inSv: (lemma: string) => scasRef.current!.inSv(lemma),
+        get hint() { return hintStateRef.current },
+      }
+    }
   }, [editor])
 
   // Track whether the selection is collapsed — on touch the toolbar hides while typing
@@ -287,6 +341,34 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     }
   }, [doc.id, editor]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Switching to a different document → reseat the controller onto its persisted state.
+  useEffect(() => {
+    scasRef.current!.reseat(
+      normalizeScasState(docRef.current.scasState),
+      docRef.current.scasSeedRef ?? docRef.current.scasSessionSeed,
+      docRef.current.id,
+      docRef.current.scasSetSize ?? DEFAULT_SET_SIZE,
+    )
+    prevDocSizeRef.current = -1
+    if (editor && !editor.isDestroyed) editor.view.dispatch(editor.state.tr.setMeta(SCAS_HINT_META, true))
+  }, [doc.id, editor]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Resample S_v on a wall-clock timer. Verdicts are frozen (locked ∪ liveKicks persist), so this
+  // never reflows committed text — it only changes which lemmas can kick on FUTURE commits, and
+  // expires the immunity of satisfied lemmas so they can re-arm.
+  useEffect(() => {
+    if (!editor) return
+    const id = setInterval(() => {
+      if (editor.isDestroyed) return
+      scasRef.current!.resampleNow()
+      const updated: InkwaveDocument = { ...docRef.current, scasState: scasRef.current!.state }
+      docRef.current = updated
+      onDocChange(updated)
+      scheduleSave(updated)
+    }, RESAMPLE_INTERVAL_MS)
+    return () => clearInterval(id)
+  }, [editor]) // eslint-disable-line react-hooks/exhaustive-deps
+
   function handleLimitChange(next: number | 'infinite') {
     const updated: InkwaveDocument = {
       ...docRef.current,
@@ -350,6 +432,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
               containerEl={containerRef as RefObject<HTMLDivElement>}
               onHintChange={handleHintChange}
               onCycleChange={setCycleActive}
+              isLockedLemma={(lemma) => scasRef.current!.lookup().locked.has(lemma)}
             />
           )}
         </Scroll>

@@ -107,7 +107,7 @@ export function getActiveVocab(
  * Generate candidate base forms for a word so inflections match their base
  * in the vocabulary. e.g. "working"→"work", "quickly"→"quick", "runs"→"run".
  */
-function getStems(word: string): string[] {
+export function getStems(word: string): string[] {
   const w = word.toLowerCase()
   const out = new Set<string>([w])
   const add = (s: string) => { if (s.length > 2) out.add(s) }

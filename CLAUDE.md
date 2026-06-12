@@ -64,8 +64,19 @@ Package manager is **pnpm** (`packageManager: pnpm@10.33.2`), not npm.
 - **Week 2 — SCAS variant: DONE (and gone beyond spec).** Per-paragraph stochastic
   re-ranking, red highlighting, Datamuse thesaurus, limit selector, compliance tracking,
   the inline word-cycle UI (Stages A & B done; C & D in progress).
-- **Week 3 — Snapshots + provenance: NOT STARTED.** Only an `appendEventLog` stub exists
-  in `opfs.ts`. No `snapshots.ts`, no `provenance/` module, no traces.
+- **Provenance spine M0 — SCAS engine swap: DONE.** Building the v4 spec
+  (`inkwave-scroll-v01-provenance-spine-build-spec-v4.md`), which supersedes the old
+  Week-3 plan. The Week-2 per-paragraph `ranking.ts` model is replaced by `scas/engine.ts`
+  + `scas/state.ts` + `scas/controller.ts`: a rotating seed-derived exclusion set `S_v`
+  (local seed in M0; server-held from M3) and the ban-credit/satisfied/immunity state
+  machine. `RedHighlightExtension` now *renders* engine state (locked ∪ liveKicks) instead
+  of recomputing vocab. Delete a kicked word → it locks (forced kick on retype, suppressed
+  from popovers); swap → resolves; verdicts freeze at commit so `S_v` rotation never
+  reflows committed text. Unit-tested (`scas/engine.test.ts`, the repo's first tests) +
+  browser-verified. Next: M1 (snapshots + local hashing).
+- **Week 3 — Snapshots + provenance: NOT STARTED** (now tracked as M1+ of the spine).
+  Only an `appendEventLog` stub exists in `opfs.ts`. No `snapshots.ts`, no `provenance/`
+  module yet.
 - **Week 4 — Glyphs, dashboard, certification: NOT STARTED.** No `glyphList.ts`,
   `ParagraphGlyphExtension`, `GlyphDashboard`, or certification PDF/QR. Glyphs are the
   stated v0.1 *differentiator* — don't trim them.

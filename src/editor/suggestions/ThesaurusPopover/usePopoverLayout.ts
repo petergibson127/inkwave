@@ -7,6 +7,7 @@ import { CYCLE_SIZE, DELETE_SENTINEL, REFLOW_OPEN_MS, REFLOW_COMMIT_MS } from '.
 import type { CycleState, OnHintChange, LineRange, SlideRange } from './popoverConstants'
 import { posOf, measureNaturalLineRight, computeLineCompressionRange, lineEndPosAfter } from './popoverGeometry'
 import { buildSynonyms } from './popoverFallbacks'
+import { lemmaOf } from '../../../scas/engine'
 
 // The in-place expand+compress popover is the experience on every device. The opaque
 // overlay card is a dormant fallback, opt-in via ?overlay=1 only — used to compare or
@@ -32,6 +33,7 @@ function wantsFlip(): boolean {
 export function usePopoverLayout(
   editor: Editor,
   onHintChange: OnHintChange,
+  isLockedLemma?: (lemma: string) => boolean,
 ) {
   const [cycle, setCycle] = useState<CycleState | null>(null)
   const [, forceUpdate]   = useState(0)
@@ -353,12 +355,16 @@ export function usePopoverLayout(
       const fe = editor.view.dom.querySelector('.scas-focused') as HTMLElement | null
       if (!fe || posOf(fe, editor) !== domPos) return
 
+      // Suppress Locked lemmas from the suggestion list (§4.4): a word with an outstanding
+      // ban-credit debt can't be acquired cheaply as someone else's synonym.
+      const offered = isLockedLemma ? candidates.filter(c => !isLockedLemma(lemmaOf(c))) : candidates
+
       // Slot 0 is the ORIGINAL word (lookupWord = the managed slot's original, or the
       // word itself when unmanaged), so a managed word re-offers the original's list.
       // Match the flagged word's leading case: a capitalised word keeps its capital
       // through every slot (and on commit).
       const capitalize = /^[A-Z]/.test(displayWord)
-      const { synonyms, minWidth } = buildSynonyms(lookupWord, candidates, font, rect.width, capitalize)
+      const { synonyms, minWidth } = buildSynonyms(lookupWord, offered, font, rect.width, capitalize)
       // Centre the reel on the word currently in the text (may differ from the original for a
       // managed slot), so reopening shows what's there, not the original.
       const cur = displayWord.toLowerCase()

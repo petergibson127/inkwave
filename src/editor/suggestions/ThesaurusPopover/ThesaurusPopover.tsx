@@ -34,12 +34,13 @@ interface ThesaurusPopoverProps {
   containerEl: React.RefObject<HTMLDivElement>
   onHintChange: OnHintChange
   onCycleChange: (active: boolean) => void
+  isLockedLemma?: (lemma: string) => boolean
 }
 
-export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintChange, onCycleChange }: ThesaurusPopoverProps) {
+export function ThesaurusPopover({ editor, paragraphIndex, containerEl, onHintChange, onCycleChange, isLockedLemma }: ThesaurusPopoverProps) {
   const { recordAccepted, recordIgnored } = useCompliance()
   const tabCursorRef = useRef<number | null>(null)
-  const { cycle, setCycle, openCycleForElement, closeWithAnimation, commitWithSlide } = usePopoverLayout(editor, onHintChange)
+  const { cycle, setCycle, openCycleForElement, closeWithAnimation, commitWithSlide } = usePopoverLayout(editor, onHintChange, isLockedLemma)
 
   // Bump on scroll/resize so the memoised geometry recomputes; reel animation does NOT
   // touch this, so per-frame reelPos updates never redo getBoundingClientRect.
