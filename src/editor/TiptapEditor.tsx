@@ -24,6 +24,9 @@ import { GuideMenu } from '../components/GuideMenu'
 import { ComplianceContext, useComplianceProvider } from '../scas/compliance'
 import { ScasController } from '../scas/controller'
 import { normalizeScasState, DEFAULT_SET_SIZE } from '../scas/state'
+import { createSnapshotIfChanged, listSnapshots } from '../provenance/snapshots'
+import { ReceiptPanel } from '../components/ReceiptPanel'
+import type { Snapshot } from '../types/document'
 
 // Wall-clock resample cadence for the rotating exclusion set S_v (v4 spec §4.2: 20–60 s).
 const RESAMPLE_INTERVAL_MS = 30_000
@@ -53,6 +56,12 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   // Document content size last seen by onTransaction — a drop means content was deleted, which
   // gates the ban-credit lock detection (so a not-yet-committed word isn't mistaken for a delete).
   const prevDocSizeRef = useRef(-1)
+
+  // Snapshots (the provenance record). Loaded per document; appended when a resolved kick changes
+  // the content. createSnapshotIfChanged is serialised through a promise chain so rapid kicks can't
+  // race the OPFS read-modify-write.
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([])
+  const snapQueueRef = useRef<Promise<void>>(Promise.resolve())
 
   const [currentParagraphIndex, setCurrentParagraphIndex] = useState(0)
   const [showHints, setShowHints] = useState(true)
@@ -353,6 +362,28 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     if (editor && !editor.isDestroyed) editor.view.dispatch(editor.state.tr.setMeta(SCAS_HINT_META, true))
   }, [doc.id, editor]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Load this document's existing snapshots when it opens / switches.
+  useEffect(() => {
+    let cancelled = false
+    void listSnapshots(doc.id).then((s) => { if (!cancelled) setSnapshots(s) })
+    return () => { cancelled = true }
+  }, [doc.id])
+
+  // Snapshot trigger: on a resolved kick, take a snapshot if the content hash changed (M1).
+  // Pasted blocks / ordinary typing never resolve a kick, so they never snapshot.
+  useEffect(() => {
+    if (!editor) return
+    const off = scasRef.current!.kicks.on(() => {
+      snapQueueRef.current = snapQueueRef.current
+        .then(async () => {
+          const snap = await createSnapshotIfChanged(docRef.current, 'kick')
+          if (snap) setSnapshots((prev) => [...prev, snap])
+        })
+        .catch((err) => { console.warn('[inkwave] snapshot failed:', err) })
+    })
+    return off
+  }, [editor]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Resample S_v on a wall-clock timer. Verdicts are frozen (locked ∪ liveKicks persist), so this
   // never reflows committed text — it only changes which lemmas can kick on FUTURE commits, and
   // expires the immunity of satisfied lemmas so they can re-arm.
@@ -438,6 +469,8 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
         </Scroll>
 
         <CycleHintPanel active={cycleActive} showHints={showHints} containerRight={containerRight} />
+
+        <ReceiptPanel snapshots={snapshots} />
 
         {/* Footer bar. On a phone it docks flush to the bottom (the top of the Safari URL
             bar) with flat bottom corners; on desktop it floats as a rounded pill. */}

@@ -23,6 +23,7 @@ import {
   isLocked,
 } from './engine'
 import { buildLookup, type ScasLookup } from './state'
+import { KickEmitter } from '../provenance/kicks'
 
 const WORD_RE = /[a-zA-Z]+/g
 const BOUNDARY_RE = /[\s.,;:!?)\-'"…]/
@@ -75,10 +76,13 @@ function scanCommitted(pmDoc: PMNode, cursorPos: number): ScannedWord[] {
 
 export class ScasController {
   state: ScasState
+  /** Emits a KickEvent on each resolution (swap / discharge / delete→credit). */
+  readonly kicks = new KickEmitter()
   private seedRef: string
   private docId: string
   private setSize: number
   private currentSet: Set<string>
+  private commitIndex = 0 // monotonic order of resolved kicks (for state-machine replay)
 
   constructor(state: ScasState, seedRef: string, docId: string, setSize: number) {
     this.state = state
@@ -114,11 +118,26 @@ export class ScasController {
     const before = this.state
     let st = this.state
 
-    // 1. Resolutions — a completed substitution resolves the ORIGINAL lemma.
+    // 1. Resolutions — a completed substitution resolves the ORIGINAL lemma. Edge-triggered:
+    //    only act (and emit) when the original is currently outstanding (locked or a live kick),
+    //    so a persisting slot word doesn't re-resolve/re-emit on every later keystroke.
     for (const w of words) {
       if (w.isSubstitution && w.slotOriginalLemma) {
         const o = w.slotOriginalLemma
-        st = isLocked(st, o) ? discharge(st, o) : markSatisfied(st, o)
+        const wasLocked = isLocked(st, o)
+        const wasLive = st.liveKicks.includes(o)
+        if (wasLocked || wasLive) {
+          st = wasLocked ? discharge(st, o) : markSatisfied(st, o)
+          this.kicks.emit({
+            lemma: o,
+            commitIndex: this.commitIndex++,
+            setVersion: st.version,
+            trigger: wasLocked ? 'locked' : 'in-S',
+            response: wasLocked ? 'credit-discharged' : 'swapped',
+            replacement: w.lemma,
+            deliberationMs: 0, // selectable→resolved timing arrives with the popover tap (later)
+          })
+        }
       }
     }
 
@@ -134,7 +153,17 @@ export class ScasController {
       const present = new Set(words.map((w) => w.lemma))
       const slotRefs = new Set(words.map((w) => w.slotOriginalLemma).filter(Boolean) as string[])
       for (const L of before.liveKicks) {
-        if (!present.has(L) && !slotRefs.has(L)) st = lock(st, L)
+        if (!present.has(L) && !slotRefs.has(L)) {
+          st = lock(st, L)
+          this.kicks.emit({
+            lemma: L,
+            commitIndex: this.commitIndex++,
+            setVersion: st.version,
+            trigger: 'in-S',
+            response: 'deleted->credit',
+            deliberationMs: 0,
+          })
+        }
       }
     }
 
