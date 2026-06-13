@@ -1,147 +1,94 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Snapshot } from '../types/document'
 
-// Minimal M1 receipt panel: the growing record of tamper-evident snapshots the writer holds.
-// Snapshots accrue on a resolved kick when the content changed. Later milestones add OTS status
-// (M2 → Bitcoin), the signed receipt chain + kick log (M3), and the friction score (M5).
+// The growing record of tamper-evident snapshots + the live-composition receipt chain the writer
+// holds. Saving/syncing lives in the ⋮ menu (not duplicated here); this panel is the record viewer:
+// verify the chain, nudge Bitcoin confirmation, and list the dated snapshots.
 export function ReceiptPanel({
   snapshots,
   onCheckBitcoin,
   receiptCount = 0,
   chainStatus,
   onVerifyChain,
-  onExport,
-  onSave,
-  folderAvailable,
-  folderActive,
-  onSyncOneDrive,
-  oneDriveAccount,
 }: {
   snapshots: Snapshot[]
   onCheckBitcoin?: () => void
   receiptCount?: number
   chainStatus?: string | null
   onVerifyChain?: () => void
-  onExport?: () => void
-  onSave?: () => void
-  folderAvailable?: boolean
-  folderActive?: boolean
-  onSyncOneDrive?: () => void
-  oneDriveAccount?: string | null
 }) {
   const [open, setOpen] = useState(false)
-  const rootRef = useRef<HTMLDivElement>(null)
   const n = snapshots.length
   const pending = snapshots.some((s) => s.ots.status === 'pending')
 
-  // Close the panel when clicking outside it (or pressing Escape).
+  // Close on Escape (outside-click is handled by the backdrop below).
   useEffect(() => {
     if (!open) return
-    const onDown = (e: MouseEvent) => { if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false) }
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('mousedown', onDown)
     document.addEventListener('keydown', onKey)
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey) }
+    return () => document.removeEventListener('keydown', onKey)
   }, [open])
 
-  return (
-    <div
-      ref={rootRef}
-      className="fixed bottom-4 left-4 z-40 font-serif text-sm select-none"
-      style={{ color: '#5c2d8a' }}
-    >
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="px-2.5 py-1 bg-white"
-        style={{ border: '1px solid rgba(92, 45, 138, 0.75)', borderRadius: 12 }}
-        title="Provenance record (held by you)"
-      >
-        ◈ {n} snapshot{n === 1 ? '' : 's'}{receiptCount > 0 ? ` · ${receiptCount} receipt${receiptCount === 1 ? '' : 's'}` : ''}
-      </button>
+  const panelOpen = open && (n > 0 || receiptCount > 0)
 
-      {open && (n > 0 || receiptCount > 0) && (
-        <div
-          className="mt-1.5 bg-white overflow-auto"
-          style={{
-            border: '1px solid rgba(92, 45, 138, 0.4)',
-            borderRadius: 10,
-            maxHeight: '40vh',
-            minWidth: 230,
-          }}
+  return (
+    <>
+      {/* Invisible backdrop catches any outside click reliably (a document listener was missing
+          clicks on the page background). Below the panel (z-30 < z-40), above the rest. */}
+      {panelOpen && <div className="fixed inset-0 z-30" aria-hidden="true" onMouseDown={() => setOpen(false)} />}
+
+      <div className="fixed bottom-4 left-4 z-40 font-serif text-sm select-none" style={{ color: '#5c2d8a' }}>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="px-2.5 py-1 bg-white"
+          style={{ border: '1px solid rgba(92, 45, 138, 0.75)', borderRadius: 12 }}
+          title="Provenance record (held by you)"
         >
-          {onVerifyChain && (
-            <button
-              type="button"
-              onClick={onVerifyChain}
-              className="w-full px-2.5 py-1.5 text-left hover:bg-stone-50"
-              style={{ borderBottom: '1px solid rgba(92, 45, 138, 0.12)' }}
-              title="Verify the signed receipt chain against the published key"
-            >
-              ✦ live-composition: {receiptCount} signed {receiptCount === 1 ? 'receipt' : 'receipts'}
-              {chainStatus ? ` — ${chainStatus}` : ' · verify…'}
-            </button>
-          )}
-          {onCheckBitcoin && pending && (
-            <button
-              type="button"
-              onClick={onCheckBitcoin}
-              className="w-full px-2.5 py-1.5 text-left hover:bg-stone-50"
-              style={{ borderBottom: '1px solid rgba(92, 45, 138, 0.12)', color: '#9b5ccc' }}
-            >
-              ⏳ check Bitcoin confirmation…
-            </button>
-          )}
-          {onSave && (
-            <button
-              type="button"
-              onClick={onSave}
-              className="w-full px-2.5 py-1.5 text-left hover:bg-stone-50"
-              style={{ borderBottom: '1px solid rgba(92, 45, 138, 0.12)', color: folderActive ? '#246b24' : '#5c2d8a' }}
-              title={folderAvailable ? 'Mirror your work into a folder you control (cloud-synced)' : 'Download your record (folder sync needs Chrome/Edge/Brave)'}
-            >
-              {folderActive ? '🗀 folder linked — re-sync' : '🗀 sync to folder'}
-            </button>
-          )}
-          {onSyncOneDrive && (
-            <button
-              type="button"
-              onClick={onSyncOneDrive}
-              className="w-full px-2.5 py-1.5 text-left hover:bg-stone-50"
-              style={{ borderBottom: '1px solid rgba(92, 45, 138, 0.12)', color: oneDriveAccount ? '#246b24' : '#5c2d8a' }}
-              title="Sync your record to OneDrive (works on any browser)"
-            >
-              {oneDriveAccount ? `☁ OneDrive: ${oneDriveAccount} — re-sync` : '☁ sync to OneDrive…'}
-            </button>
-          )}
-          {onExport && folderAvailable && (
-            <button
-              type="button"
-              onClick={onExport}
-              className="w-full px-2.5 py-1.5 text-left hover:bg-stone-50"
-              style={{ borderBottom: '1px solid rgba(92, 45, 138, 0.12)', color: '#5c2d8a' }}
-              title="Download a copy of the self-verifying record (open it at /verify)"
-            >
-              ⤓ download record
-            </button>
-          )}
-          {[...snapshots].reverse().map((s) => (
-            <div key={s.id} className="px-2.5 py-1.5 flex items-baseline gap-2"
-                 style={{ borderBottom: '1px solid rgba(92, 45, 138, 0.12)' }}>
-              <span className="tabular-nums" style={{ color: '#9b5ccc' }}>
-                {new Date(s.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-              </span>
-              <span className="text-stone-500">{s.wordCount}w</span>
-              <span className="font-mono text-stone-400" title={`bundle ${s.bundleHash}`}>
-                {s.bundleHash.slice(0, 8)}
-              </span>
-              <span className="ml-auto text-stone-400">
-                {s.ots.status === 'confirmed' ? '⛓ Bitcoin' : s.ots.status === 'pending' ? '⏳ pending' : '· local'}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+          ◈ {n} snapshot{n === 1 ? '' : 's'}{receiptCount > 0 ? ` · ${receiptCount} receipt${receiptCount === 1 ? '' : 's'}` : ''}
+        </button>
+
+        {panelOpen && (
+          <div
+            className="mt-1.5 bg-white overflow-auto"
+            style={{ border: '1px solid rgba(92, 45, 138, 0.4)', borderRadius: 10, maxHeight: '40vh', width: 150 }}
+          >
+            {onVerifyChain && (
+              <button
+                type="button"
+                onClick={onVerifyChain}
+                className="w-full px-2.5 py-1.5 text-left hover:bg-stone-50"
+                style={{ borderBottom: '1px solid rgba(92, 45, 138, 0.12)' }}
+                title="Verify the signed receipt chain against the published key"
+              >
+                ✦ {chainStatus ? `chain: ${chainStatus}` : 'verify chain…'}
+              </button>
+            )}
+            {onCheckBitcoin && pending && (
+              <button
+                type="button"
+                onClick={onCheckBitcoin}
+                className="w-full px-2.5 py-1.5 text-left hover:bg-stone-50"
+                style={{ borderBottom: '1px solid rgba(92, 45, 138, 0.12)', color: '#9b5ccc' }}
+              >
+                ⏳ check Bitcoin…
+              </button>
+            )}
+            {[...snapshots].reverse().map((s) => (
+              <div key={s.id} className="px-2.5 py-1.5 flex items-baseline gap-1.5"
+                   style={{ borderBottom: '1px solid rgba(92, 45, 138, 0.12)' }}>
+                <span className="tabular-nums" style={{ color: '#9b5ccc' }}>
+                  {new Date(s.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+                <span className="text-stone-500">{s.wordCount}w</span>
+                <span className="ml-auto text-stone-400" title={`bundle ${s.bundleHash}`}>
+                  {s.ots.status === 'confirmed' ? '⛓' : s.ots.status === 'pending' ? '⏳' : '·'}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
   )
 }

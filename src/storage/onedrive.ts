@@ -31,8 +31,7 @@ let appPromise: Promise<unknown> | null = null
 async function getApp(): Promise<{
   getAllAccounts: () => Array<{ username: string }>
   acquireTokenSilent: (o: unknown) => Promise<{ accessToken: string }>
-  loginPopup: (o: unknown) => Promise<{ accessToken: string }>
-  logoutPopup: (o: unknown) => Promise<void>
+  loginRedirect: (o: unknown) => Promise<void>
 }> {
   if (!CLIENT_ID) throw new Error('OneDrive not configured')
   if (!appPromise) {
@@ -42,6 +41,8 @@ async function getApp(): Promise<{
         cache: { cacheLocation: 'localStorage' },
       })
       await app.initialize()
+      // Same-window flow: process the auth response when we return from the Microsoft redirect.
+      await app.handleRedirectPromise()
       return app
     })
   }
@@ -59,36 +60,35 @@ export async function oneDriveAccount(): Promise<string | null> {
   }
 }
 
-// Get an access token: silent if a session exists; interactive (popup) only when allowed.
-async function getToken(interactive: boolean): Promise<string | null> {
+// Silent access token (an existing session only — no UI). null if not signed in / expired.
+async function getSilentToken(): Promise<string | null> {
   const app = await getApp()
   const account = app.getAllAccounts()[0]
-  if (account) {
-    try {
-      return (await app.acquireTokenSilent({ scopes: SCOPES, account })).accessToken
-    } catch { /* expired / needs interaction */ }
-  }
-  if (!interactive) return null
+  if (!account) return null
   try {
-    return (await app.loginPopup({ scopes: SCOPES })).accessToken
+    return (await app.acquireTokenSilent({ scopes: SCOPES, account })).accessToken
   } catch {
-    return null // user cancelled / popup blocked
+    return null
   }
 }
 
-/** Sign in (popup). Returns the account email, or null if cancelled. */
-export async function signInOneDrive(): Promise<string | null> {
-  if (!CLIENT_ID) return null
-  const token = await getToken(true)
-  if (!token) return null
-  return oneDriveAccount()
+const PENDING_KEY = 'inkwave:onedrive-pending'
+
+/** Begin sign-in in the SAME window (full-page redirect to Microsoft and back). Flags that a sync
+ *  is wanted on return. The page navigates away; work is restored from OPFS when it comes back. */
+export async function startOneDriveSignIn(): Promise<void> {
+  if (!CLIENT_ID) return
+  try { sessionStorage.setItem(PENDING_KEY, '1') } catch { /* private mode */ }
+  const app = await getApp()
+  await app.loginRedirect({ scopes: SCOPES })
 }
 
-export async function signOutOneDrive(): Promise<void> {
-  if (!CLIENT_ID) return
-  const app = await getApp()
-  const account = app.getAllAccounts()[0]
-  if (account) await app.logoutPopup({ account })
+/** True if we just returned from a sign-in redirect and should sync now. */
+export function oneDriveSyncPending(): boolean {
+  try { return sessionStorage.getItem(PENDING_KEY) === '1' } catch { return false }
+}
+export function clearOneDriveSyncPending(): void {
+  try { sessionStorage.removeItem(PENDING_KEY) } catch { /* ignore */ }
 }
 
 async function putFile(token: string, name: string, content: string): Promise<void> {
@@ -101,17 +101,12 @@ async function putFile(token: string, name: string, content: string): Promise<vo
 }
 
 /**
- * Sync the record to OneDrive/Apps/Inkwave. `interactive` allows a sign-in popup (use for the
- * explicit "sync" button); pass false for background auto-sync (silent token only — no popup).
- * Returns true on success.
+ * Sync the record to OneDrive/Apps/Inkwave using the existing session (no UI). Returns false if not
+ * signed in — call startOneDriveSignIn() first. Used for both the explicit sync and auto-sync.
  */
-export async function syncToOneDrive(
-  doc: InkwaveDocument,
-  snapshots: Snapshot[],
-  interactive = true,
-): Promise<boolean> {
+export async function syncToOneDrive(doc: InkwaveDocument, snapshots: Snapshot[]): Promise<boolean> {
   if (!CLIENT_ID) return false
-  const token = await getToken(interactive)
+  const token = await getSilentToken()
   if (!token) return false
   const bundle = buildExportBundle(doc, snapshots)
   try {
