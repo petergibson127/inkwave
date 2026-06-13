@@ -10,21 +10,36 @@
 // enters the prerender/SSR graph.
 
 import type { InkwaveDocument, Snapshot } from '../types/document'
-import { buildExportBundle, bundleFilename } from '../provenance/bundle'
+import { buildExportBundle, bundleFilename, composeTraceFile } from '../provenance/bundle'
 
-/** Where the synced file lives in the user's OneDrive (for display). */
+// The OneDrive folder the writer chose to sync into. id '' (or null) = the OneDrive root. `path` is
+// a human-readable location ("Documents/Inkwave") for display. Persisted so the choice sticks.
+export interface OneDriveFolder { id: string; path: string }
+const FOLDER_KEY = 'inkwave:onedrive-folder'
+
+export function getChosenFolder(): OneDriveFolder | null {
+  try { const s = localStorage.getItem(FOLDER_KEY); return s ? (JSON.parse(s) as OneDriveFolder) : null } catch { return null }
+}
+export function setChosenFolder(folder: OneDriveFolder | null): void {
+  try { folder ? localStorage.setItem(FOLDER_KEY, JSON.stringify(folder)) : localStorage.removeItem(FOLDER_KEY) } catch { /* private mode */ }
+}
+
+/** Where the synced file lives in the user's OneDrive (for display), honouring the chosen folder. */
 export function oneDrivePath(doc: InkwaveDocument): string {
-  return `Apps/Inkwave/${bundleFilename(doc)}`
+  const folder = getChosenFolder()
+  const prefix = folder?.path ? `${folder.path}/` : ''
+  return `${prefix}${bundleFilename(doc)}`
 }
 
 // The Azure app (SPA) client id — PUBLIC (it appears in OAuth redirects), so it's committed as the
 // default and overridable via VITE_MS_CLIENT_ID. Redirect URIs registered: https://www.inkwave.studio
 // + http://localhost:5173 (dev). Authority /common + delegated Files.ReadWrite.AppFolder.
 const CLIENT_ID = (import.meta.env?.VITE_MS_CLIENT_ID as string | undefined) || 'be76cc89-ab01-4681-99c0-f37b9f9d2308'
-// Personal + work/school accounts; AppFolder = a single dedicated OneDrive/Apps/Inkwave folder.
+// Personal + work/school accounts. Files.ReadWrite (full drive) so the writer can pick ANY folder
+// to sync into; existing AppFolder-only sessions are re-prompted to consent on the next sync.
 const AUTHORITY = 'https://login.microsoftonline.com/common'
-const SCOPES = ['Files.ReadWrite.AppFolder', 'User.Read']
-const GRAPH_APPROOT = 'https://graph.microsoft.com/v1.0/me/drive/special/approot:'
+const SCOPES = ['Files.ReadWrite', 'User.Read']
+const GRAPH = 'https://graph.microsoft.com/v1.0'
 
 /** Is OneDrive sync configured (an Azure client id is present)? */
 export function oneDriveConfigured(): boolean {
@@ -66,7 +81,8 @@ export async function oneDriveAccount(): Promise<string | null> {
 }
 
 // Silent access token (an existing session only — no UI). null if not signed in / expired.
-async function getSilentToken(): Promise<string | null> {
+// Exported so the folder picker can call Graph directly.
+export async function getSilentToken(): Promise<string | null> {
   const app = await getApp()
   const account = app.getAllAccounts()[0]
   if (!account) return null
@@ -96,31 +112,54 @@ export function clearOneDriveSyncPending(): void {
   try { sessionStorage.removeItem(PENDING_KEY) } catch { /* ignore */ }
 }
 
-async function putFile(token: string, name: string, content: string): Promise<void> {
-  const res = await fetch(`${GRAPH_APPROOT}/${encodeURIComponent(name)}:/content`, {
+// PUT the file into the chosen folder (or the OneDrive root). Returns the file's webUrl so the UI
+// can offer "open in OneDrive". Graph addresses items by path relative to a folder id, or to root.
+async function putFile(token: string, name: string, content: string): Promise<string | null> {
+  const folder = getChosenFolder()
+  const target = folder?.id
+    ? `${GRAPH}/me/drive/items/${folder.id}:/${encodeURIComponent(name)}:/content`
+    : `${GRAPH}/me/drive/root:/${encodeURIComponent(name)}:/content`
+  const res = await fetch(target, {
     method: 'PUT',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'text/plain' },
     body: content,
   })
   if (!res.ok) throw new Error(`Graph upload failed (${res.status})`)
+  const data = await res.json().catch(() => ({} as { webUrl?: string }))
+  return (data as { webUrl?: string }).webUrl ?? null
 }
 
-/**
- * Sync the record to OneDrive/Apps/Inkwave using the existing session (no UI). Returns false if not
- * signed in — call startOneDriveSignIn() first. Used for both the explicit sync and auto-sync.
- */
-export async function syncToOneDrive(doc: InkwaveDocument, snapshots: Snapshot[]): Promise<boolean> {
-  if (!CLIENT_ID) return false
+export interface DriveFolder { id: string; name: string }
+
+/** List the sub-folders of a folder (null/'' = OneDrive root) for the folder picker. */
+export async function listFolders(parentId: string | null): Promise<DriveFolder[]> {
   const token = await getSilentToken()
-  if (!token) return false
-  // One self-contained file: the bundle holds content + snapshots + Bitcoin proofs + receipts, with
-  // the readable text header on top. (User-chosen folder selection — the OneDrive picker — is a
-  // planned follow-up; for now it lands in the app's OneDrive folder.)
-  const bundle = buildExportBundle(doc, snapshots)
+  if (!token) throw new Error('not signed in')
+  const base = parentId ? `${GRAPH}/me/drive/items/${parentId}/children` : `${GRAPH}/me/drive/root/children`
+  const res = await fetch(`${base}?$select=id,name,folder&$top=200&$orderby=name`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) throw new Error(`Graph list failed (${res.status})`)
+  const data = (await res.json()) as { value: Array<{ id: string; name: string; folder?: unknown }> }
+  return data.value.filter((it) => it.folder).map((it) => ({ id: it.id, name: it.name }))
+}
+
+export interface SyncResult { ok: boolean; webUrl: string | null }
+
+/**
+ * Sync the single self-contained .trace.json to the chosen OneDrive folder using the existing session
+ * (no UI). ok:false if not signed in / the scope isn't consented — call startOneDriveSignIn() first.
+ */
+export async function syncToOneDrive(doc: InkwaveDocument, snapshots: Snapshot[]): Promise<SyncResult> {
+  if (!CLIENT_ID) return { ok: false, webUrl: null }
+  const token = await getSilentToken()
+  if (!token) return { ok: false, webUrl: null }
+  // One self-contained file: readable writing on top, then the record (content + snapshots + Bitcoin
+  // proofs + receipts).
+  const file = composeTraceFile(buildExportBundle(doc, snapshots))
   try {
-    await putFile(token, bundleFilename(doc), JSON.stringify(bundle, null, 2))
-    return true
+    return { ok: true, webUrl: await putFile(token, bundleFilename(doc), file) }
   } catch {
-    return false
+    return { ok: false, webUrl: null }
   }
 }

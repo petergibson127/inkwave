@@ -29,6 +29,23 @@ function pmToText(doc: TiptapJSON): string {
   return blocks.filter((b) => b.length > 0).join('\n\n') + '\n'
 }
 
+// Hard-wrap each paragraph at ~width columns on word boundaries. The readable header is plain text
+// (real line + paragraph breaks), so it stays legible in any viewer — unlike a JSON string value,
+// whose newlines show as escaped "\n" on one long line.
+function wrapText(text: string, width = 76): string {
+  return text.split('\n').map((line) => {
+    if (line.length <= width) return line
+    const out: string[] = []
+    let cur = ''
+    for (const word of line.split(' ')) {
+      if (cur && (cur + ' ' + word).length > width) { out.push(cur); cur = word }
+      else cur = cur ? `${cur} ${word}` : word
+    }
+    if (cur) out.push(cur)
+    return out.join('\n')
+  }).join('\n')
+}
+
 export interface BundleSummary {
   what: string
   title: string
@@ -151,9 +168,38 @@ export function bundleFilename(doc: InkwaveDocument): string {
   return `${slugOf(doc)}.${TRACE_EXTENSION}`
 }
 
-/** Trigger a download of the bundle as pretty-printed JSON (browser only). */
+// The .trace.json file is a hybrid: the WRITING first (wrapped — real line + paragraph breaks, so
+// you open the file and read it immediately), then this marker, then the verifiable JSON record.
+// composeTraceFile() writes that shape; parseTraceFile() reads it back (and still accepts a legacy
+// pure-JSON file). The box-drawing rule makes the marker unmistakable and ~impossible to hit in prose.
+const TRACE_DATA_MARKER = '══════ INKWAVE RECORD · verify at inkwave.studio/verify ══════'
+
+/** Serialize a bundle to the single .trace.json file: readable writing on top, JSON record below. */
+export function composeTraceFile(bundle: ExportBundle): string {
+  return [
+    wrapText((bundle.text ?? '').replace(/\n+$/, '')),
+    '',
+    '══════════════════════════════════════════════════════════════',
+    TRACE_DATA_MARKER,
+    'Everything below is the structured record that proves the writing above. You don’t need to',
+    'read it — open this file at inkwave.studio/verify to check it.',
+    '══════════════════════════════════════════════════════════════',
+    '',
+    JSON.stringify(bundle, null, 2),
+    '',
+  ].join('\n')
+}
+
+/** Read a .trace.json file back into a bundle (hybrid text-header format OR a legacy pure-JSON file). */
+export function parseTraceFile(fileText: string): ExportBundle {
+  const i = fileText.indexOf('INKWAVE RECORD · verify')
+  const json = i < 0 ? fileText : fileText.slice(fileText.indexOf('{', i))
+  return JSON.parse(json) as ExportBundle
+}
+
+/** Trigger a download of the single self-contained .trace.json file (browser only). */
 export function downloadBundle(bundle: ExportBundle, filename: string): void {
-  const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
+  const blob = new Blob([composeTraceFile(bundle)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url

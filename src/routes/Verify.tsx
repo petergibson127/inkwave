@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router'
 import { verifyBundle, type VerifyReport } from '../verify'
 import { signingPublicKeyHex } from '../provenance/receipts'
-import type { ExportBundle } from '../provenance/bundle'
+import { parseTraceFile } from '../provenance/bundle'
 
 const INK = '#5c2d8a'
 const LIGHT = '#9b5ccc'
@@ -18,7 +18,7 @@ export function Verify() {
   async function run(text: string) {
     setError(null); setReport(null); setTitle(null); setBusy(true)
     try {
-      const bundle = JSON.parse(text) as ExportBundle
+      const bundle = parseTraceFile(text)
       if (bundle.v !== 1 || !Array.isArray(bundle.receipts) || !Array.isArray(bundle.snapshots)) {
         throw new Error('not an Inkwave export bundle')
       }

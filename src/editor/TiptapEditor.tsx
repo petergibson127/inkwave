@@ -30,8 +30,9 @@ import { ReceiptPanel } from '../components/ReceiptPanel'
 import { SessionRunner } from '../provenance/session'
 import { buildExportBundle, bundleFilename, downloadBundle } from '../provenance/bundle'
 import { fileSaveAvailable, pickSaveFile, getSaveFileHandle, writeBundleToFile } from '../storage/folder'
-import { oneDriveConfigured, oneDriveAccount, syncToOneDrive, startOneDriveSignIn, oneDriveSyncPending, clearOneDriveSyncPending, oneDrivePath } from '../storage/onedrive'
+import { oneDriveConfigured, oneDriveAccount, syncToOneDrive, startOneDriveSignIn, oneDriveSyncPending, clearOneDriveSyncPending, oneDrivePath, setChosenFolder, type OneDriveFolder } from '../storage/onedrive'
 import { SyncStatus } from '../components/SyncStatus'
+import { OneDriveFolderPicker } from '../components/OneDriveFolderPicker'
 import { contentHash } from '../provenance/hash'
 import { verifyChain, signingPublicKeyHex } from '../provenance/receipts'
 import type { Snapshot, SignedReceipt, KickEvent } from '../types/document'
@@ -85,6 +86,8 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   const [oneDriveAcct, setOneDriveAcct] = useState<string | null>(null)
   const oneDriveActiveRef = useRef(false)
   const [lastSync, setLastSync] = useState<number | null>(null) // ms epoch of last successful OneDrive sync
+  const [oneDriveUrl, setOneDriveUrl] = useState<string | null>(null) // webUrl of the synced file (open-in-OneDrive)
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false)
 
   const [currentParagraphIndex, setCurrentParagraphIndex] = useState(0)
   const [showHints, setShowHints] = useState(true)
@@ -458,7 +461,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     const docId = docRef.current.id
     void listSnapshots(docId).then((snaps) => {
       if (folderActiveRef.current) void writeBundleToFile(docRef.current, snaps).catch(() => {})
-      if (oneDriveActiveRef.current) void syncToOneDrive(docRef.current, snaps).then((ok) => { if (ok) setLastSync(Date.now()) }).catch(() => {})
+      if (oneDriveActiveRef.current) void syncToOneDrive(docRef.current, snaps).then((r) => { if (r.ok) { setLastSync(Date.now()); setOneDriveUrl(r.webUrl) } }).catch(() => {})
     }).catch(() => {})
   }
 
@@ -468,11 +471,29 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     const acct = await oneDriveAccount()
     if (!acct) { await startOneDriveSignIn(); return } // navigates away, comes back signed in
     const snaps = await listSnapshots(docRef.current.id)
-    if (await syncToOneDrive(docRef.current, snaps)) {
+    const r = await syncToOneDrive(docRef.current, snaps)
+    if (r.ok) {
       oneDriveActiveRef.current = true
       setOneDriveAcct(acct)
       setLastSync(Date.now())
+      setOneDriveUrl(r.webUrl)
+    } else {
+      // Signed in but the token/scope isn't valid (e.g. the new Files.ReadWrite consent) → re-consent.
+      await startOneDriveSignIn()
     }
+  }
+
+  // Choose which OneDrive folder to sync into. Needs a signed-in session; otherwise start sign-in
+  // (we resume on return). On pick, remember the folder and sync there now.
+  async function chooseOneDriveFolder() {
+    const acct = await oneDriveAccount()
+    if (!acct) { await startOneDriveSignIn(); return }
+    setFolderPickerOpen(true)
+  }
+  function onFolderPicked(folder: OneDriveFolder) {
+    setChosenFolder(folder)
+    setFolderPickerOpen(false)
+    void syncOneDrive()
   }
 
   // Reconnect a prior OneDrive session on load (also completes a sign-in we returned from).
@@ -485,7 +506,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
         clearOneDriveSyncPending()
         void listSnapshots(docRef.current.id)
           .then((s) => syncToOneDrive(docRef.current, s))
-          .then((ok) => { if (ok) setLastSync(Date.now()) })
+          .then((r) => { if (r.ok) { setLastSync(Date.now()); setOneDriveUrl(r.webUrl) } })
       }
     })
   }, [])
@@ -660,7 +681,17 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
           onVerifyChain={verifyReceiptChain}
         />
 
-        <SyncStatus account={oneDriveAcct} lastSync={lastSync} path={oneDriveAcct ? oneDrivePath(doc) : null} />
+        <SyncStatus
+          account={oneDriveAcct}
+          lastSync={lastSync}
+          path={oneDriveAcct ? oneDrivePath(doc) : null}
+          webUrl={oneDriveUrl}
+          onChangeFolder={chooseOneDriveFolder}
+        />
+
+        {folderPickerOpen && (
+          <OneDriveFolderPicker onPick={onFolderPicked} onClose={() => setFolderPickerOpen(false)} />
+        )}
 
         {/* Footer bar. On a phone it docks flush to the bottom (the top of the Safari URL
             bar) with flat bottom corners; on desktop it floats as a rounded pill. */}
@@ -719,6 +750,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
                 onSave={saveRecord}
                 folderAvailable={fileSaveAvailable()}
                 onSyncOneDrive={oneDriveConfigured() ? syncOneDrive : undefined}
+                onChooseOneDriveFolder={chooseOneDriveFolder}
                 oneDriveAccount={oneDriveAcct}
               />
             </div>

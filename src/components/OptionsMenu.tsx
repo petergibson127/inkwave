@@ -11,12 +11,22 @@ import type { DocumentMeta, InkwaveDocument } from '../types/document'
 import { listMeta, upsertMeta } from '../storage/indexeddb'
 import { saveDocument, emptyTiptapDoc } from '../storage/opfs'
 import { withScasDefaults } from '../scas/state'
+import { parseTraceFile } from '../provenance/bundle'
 
 const ACTIVE_DOC_KEY = 'inkwave:activeDocumentId'
 const INK = '#5c2d8a'
 
-type ModalKey = 'open' | 'recent' | 'save'
-const MODAL_TITLES: Record<ModalKey, string> = { open: 'Open', recent: 'Open Recent', save: 'Save' }
+type ModalKey = 'recent' | 'save'
+const MODAL_TITLES: Record<ModalKey, string> = { recent: 'Open Recent', save: 'Save' }
+
+// Open a chosen file (Inkwave document or .trace.json export) as a new active document.
+async function openFile(file: File): Promise<void> {
+  const data = parseTraceFile(await file.text())
+  const contentJson = (data as { contentJson?: InkwaveDocument['contentJson'] }).contentJson ?? data.document?.contentJson
+  const title = (data as { title?: string }).title ?? data.document?.title ?? file.name.replace(/\.(trace|insig)?\.?json$/, '')
+  if (!contentJson) throw new Error('not an Inkwave document or export bundle')
+  await createDocument(title, contentJson)
+}
 
 // Switch the active document by id and reload so the editor loads it cleanly.
 function openDocument(id: string) {
@@ -41,6 +51,7 @@ export function OptionsMenu({
   onSave,
   folderAvailable,
   onSyncOneDrive,
+  onChooseOneDriveFolder,
   oneDriveAccount,
 }: {
   paperRight: number
@@ -48,6 +59,7 @@ export function OptionsMenu({
   onSave?: () => void
   folderAvailable?: boolean
   onSyncOneDrive?: () => void
+  onChooseOneDriveFolder?: () => void
   oneDriveAccount?: string | null
 }) {
   const navigate = useNavigate()
@@ -55,6 +67,14 @@ export function OptionsMenu({
   const [modal, setModal] = useState<ModalKey | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  async function onOpenFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = '' // allow re-picking the same file
+    if (!file) return
+    try { await openFile(file) } catch { /* ignore a bad file; user can retry */ }
+  }
 
   useEffect(() => {
     if (!menuOpen) return
@@ -67,7 +87,7 @@ export function OptionsMenu({
 
   const items: Array<{ label: string; run: () => void }> = [
     { label: 'New', run: () => void createDocument('Untitled', emptyTiptapDoc()) },
-    { label: 'Open…', run: () => setModal('open') },
+    { label: 'Open…', run: () => fileInputRef.current?.click() },
     { label: 'Open Recent', run: () => setModal('recent') },
     { label: 'Save…', run: () => setModal('save') },
     { label: 'About', run: () => navigate('/about') },
@@ -95,6 +115,8 @@ export function OptionsMenu({
 
   return (
     <div ref={rootRef} className="relative">
+      {/* Hidden input: "Open…" clicks it directly so the OS file dialog opens immediately (no drop zone). */}
+      <input ref={fileInputRef} type="file" accept="application/json,.json,.trace.json,.insig.json" className="hidden" onChange={onOpenFile} />
       <button
         ref={btnRef} type="button" aria-label="Options" aria-haspopup="menu" aria-expanded={menuOpen}
         onClick={() => setMenuOpen(o => !o)}
@@ -120,8 +142,7 @@ export function OptionsMenu({
 
       {modal && (
         <Modal title={MODAL_TITLES[modal]} onClose={() => setModal(null)}>
-          {modal === 'save' && <SavePanel onExportBundle={onExportBundle} onSave={onSave} folderAvailable={folderAvailable} onSyncOneDrive={onSyncOneDrive} oneDriveAccount={oneDriveAccount} onDone={() => setModal(null)} />}
-          {modal === 'open' && <OpenPanel onClose={() => setModal(null)} />}
+          {modal === 'save' && <SavePanel onExportBundle={onExportBundle} onSave={onSave} folderAvailable={folderAvailable} onSyncOneDrive={onSyncOneDrive} onChooseOneDriveFolder={onChooseOneDriveFolder} oneDriveAccount={oneDriveAccount} onDone={() => setModal(null)} />}
           {modal === 'recent' && <RecentPanel />}
         </Modal>
       )}
@@ -144,20 +165,19 @@ function MenuButton({ onClick, children }: { onClick?: () => void; children: Rea
   )
 }
 
-function SavePanel({ onExportBundle, onSave, folderAvailable, onSyncOneDrive, oneDriveAccount, onDone }: {
+function SavePanel({ onExportBundle, onSave, folderAvailable, onSyncOneDrive, onChooseOneDriveFolder, oneDriveAccount, onDone }: {
   onExportBundle?: () => void; onSave?: () => void; folderAvailable?: boolean
-  onSyncOneDrive?: () => void; oneDriveAccount?: string | null; onDone: () => void
+  onSyncOneDrive?: () => void; onChooseOneDriveFolder?: () => void; oneDriveAccount?: string | null; onDone: () => void
 }) {
   return (
     <div className="flex flex-col gap-2.5 mt-2">
-      <MenuButton onClick={onSave ? () => { onSave(); onDone() } : undefined}>
-        🗀 Sync to folder
-        <span className="block text-xs text-stone-400">
-          {folderAvailable
-            ? 'mirror your work into a folder you control (auto-syncs if it’s a cloud folder)'
-            : 'downloads your self-verifying record (live folder sync needs Chrome, Edge or Brave)'}
-        </span>
-      </MenuButton>
+      {/* "Save to a file" only on Chromium (File System Access); Firefox/Safari use OneDrive or download. */}
+      {folderAvailable && (
+        <MenuButton onClick={onSave ? () => { onSave(); onDone() } : undefined}>
+          🗀 Save to a file
+          <span className="block text-xs text-stone-400">choose a name + place once; it saves there as you write</span>
+        </MenuButton>
+      )}
       {onSyncOneDrive && (
         <MenuButton onClick={() => { onSyncOneDrive(); onDone() }}>
           {oneDriveAccount ? '☁ Re-sync to OneDrive' : '☁ Sync to OneDrive'}
@@ -166,38 +186,14 @@ function SavePanel({ onExportBundle, onSave, folderAvailable, onSyncOneDrive, on
           </span>
         </MenuButton>
       )}
+      {onSyncOneDrive && oneDriveAccount && onChooseOneDriveFolder && (
+        <MenuButton onClick={() => { onChooseOneDriveFolder(); onDone() }}>
+          🗁 Choose OneDrive folder<span className="block text-xs text-stone-400">pick where in your OneDrive the file is saved</span>
+        </MenuButton>
+      )}
       <MenuButton onClick={onExportBundle ? () => { onExportBundle(); onDone() } : undefined}>
         ⤓ Download a copy<span className="block text-xs text-stone-400">a self-verifying file you can keep or check at /verify</span>
       </MenuButton>
-    </div>
-  )
-}
-
-function OpenPanel({ onClose }: { onClose: () => void }) {
-  const [error, setError] = useState<string | null>(null)
-  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    try {
-      const data = JSON.parse(await file.text())
-      // Accept a raw document OR an export bundle (which nests the document).
-      const contentJson = data.contentJson ?? data.document?.contentJson
-      const title = data.title ?? data.document?.title ?? file.name.replace(/\.json$/, '')
-      if (!contentJson) throw new Error('not an Inkwave document or export bundle')
-      await createDocument(title, contentJson)
-      onClose()
-    } catch (err) {
-      setError((err as Error).message)
-    }
-  }
-  return (
-    <div className="mt-2">
-      <label className="block border-2 border-dashed rounded-xl px-4 py-7 text-center cursor-pointer hover:bg-stone-50" style={{ borderColor: `${INK}55`, color: INK }}>
-        <input type="file" accept="application/json,.json,.trace.json,.insig.json" className="hidden" onChange={onFile} />
-        Choose a file…
-        <span className="block text-xs text-stone-400 mt-1">an Inkwave document or export bundle (.json)</span>
-      </label>
-      {error && <p className="text-xs text-red-700 mt-2">⚠ {error}</p>}
     </div>
   )
 }
