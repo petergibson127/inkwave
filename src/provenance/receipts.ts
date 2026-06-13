@@ -19,7 +19,7 @@ export const DEV_SIGNING_PK = 'd5c5e5b40c2f33cb39f5c37ddc1ac27148addca4b7cdd12c7
 // This committed constant is authoritative (it's the git mirror) — we deliberately do NOT read it
 // from an env var, so a stray/mismatched VITE_SIGNING_PK can't silently break verification. To
 // rotate: regenerate the keypair, update INKWAVE_SIGNING_SK + this constant (+ a key-id), redeploy.
-export const PUBLISHED_SIGNING_PK = '0b0f554fb21d3310ef07d44685245c896302707d1068c8e2ce681c2ea9f9c94f'
+export const PUBLISHED_SIGNING_PK = 'b1fa2bad8ccb7451f2db3ae81851197dad5e5f6fca26297c9d6cc8e697db8b51'
 
 /**
  * The signing public key the app verifies against: the published production key, except local dev
