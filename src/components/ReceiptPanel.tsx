@@ -10,12 +10,18 @@ export function ReceiptPanel({
   receiptCount = 0,
   chainStatus,
   onVerifyChain,
+  onExport,
+  onSaveToFolder,
+  folderActive,
 }: {
   snapshots: Snapshot[]
   onCheckBitcoin?: () => void
   receiptCount?: number
   chainStatus?: string | null
   onVerifyChain?: () => void
+  onExport?: () => void
+  onSaveToFolder?: () => void
+  folderActive?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const n = snapshots.length
@@ -66,6 +72,28 @@ export function ReceiptPanel({
               style={{ borderBottom: '1px solid rgba(92, 45, 138, 0.12)', color: '#9b5ccc' }}
             >
               ⏳ check Bitcoin confirmation…
+            </button>
+          )}
+          {onExport && (
+            <button
+              type="button"
+              onClick={onExport}
+              className="w-full px-2.5 py-1.5 text-left hover:bg-stone-50"
+              style={{ borderBottom: '1px solid rgba(92, 45, 138, 0.12)', color: '#5c2d8a' }}
+              title="Download the self-verifying record (open it at /verify)"
+            >
+              ⤓ export bundle
+            </button>
+          )}
+          {onSaveToFolder && (
+            <button
+              type="button"
+              onClick={onSaveToFolder}
+              className="w-full px-2.5 py-1.5 text-left hover:bg-stone-50"
+              style={{ borderBottom: '1px solid rgba(92, 45, 138, 0.12)', color: folderActive ? '#246b24' : '#5c2d8a' }}
+              title="Mirror your work into a folder you control (point it at a cloud-synced directory)"
+            >
+              {folderActive ? '🗀 folder linked — re-save' : '🗀 save to folder…'}
             </button>
           )}
           {[...snapshots].reverse().map((s) => (

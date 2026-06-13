@@ -27,6 +27,8 @@ import { normalizeScasState, DEFAULT_SET_SIZE } from '../scas/state'
 import { createSnapshotIfChanged, listSnapshots, stampSnapshot, drainUnstamped, upgradePending } from '../provenance/snapshots'
 import { ReceiptPanel } from '../components/ReceiptPanel'
 import { SessionRunner } from '../provenance/session'
+import { buildExportBundle, bundleFilename, downloadBundle } from '../provenance/bundle'
+import { folderApiAvailable, grantFolder, getGrantedFolder, mirrorDocument } from '../storage/folder'
 import { contentHash } from '../provenance/hash'
 import { verifyChain, signingPublicKeyHex } from '../provenance/receipts'
 import type { Snapshot, SignedReceipt, KickEvent } from '../types/document'
@@ -73,6 +75,10 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   const periodKicksRef = useRef<KickEvent[]>([]) // kicks resolved during the current signing period
   const [receipts, setReceipts] = useState<SignedReceipt[]>([])
   const [chainStatus, setChainStatus] = useState<string | null>(null)
+  // Writer-held folder mirror (M4, Chromium only). folderActiveRef is read by the (non-React)
+  // snapshot/period callbacks; the state drives the panel.
+  const [folderActive, setFolderActive] = useState(false)
+  const folderActiveRef = useRef(false)
 
   const [currentParagraphIndex, setCurrentParagraphIndex] = useState(0)
   const [showHints, setShowHints] = useState(true)
@@ -413,6 +419,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
         setSnapshots((prev) => [...prev, snap])
         const stamped = await stampSnapshot(snap.documentId, snap.id) // pending proof
         if (stamped) setSnapshots((prev) => prev.map((s) => (s.id === stamped.id ? stamped : s)))
+        mirrorIfActive()
       })
     })
     return off
@@ -423,6 +430,35 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     const docId = docRef.current.id
     enqueueSnapshotWork(async () => { await upgradePending(docId); await refreshSnapshots(docId) })
   }
+
+  // Export the self-verifying bundle (content + snapshots + receipts + key ref) for /verify (M4).
+  function exportBundle() {
+    const bundle = buildExportBundle(docRef.current, snapshots)
+    downloadBundle(bundle, bundleFilename(docRef.current))
+  }
+
+  // Mirror the document + snapshots + bundle into the writer's granted folder (no-op if none).
+  function mirrorIfActive() {
+    if (!folderActiveRef.current) return
+    const docId = docRef.current.id
+    void listSnapshots(docId).then((snaps) => mirrorDocument(docRef.current, snaps)).catch(() => {})
+  }
+
+  // "Save to folder" — grant a folder on first use (a user gesture), then mirror. The folder IS the
+  // login: point it at a cloud-synced directory and the OS handles cross-device sync.
+  async function saveToFolder() {
+    let granted = await getGrantedFolder(true)
+    if (!granted) granted = await grantFolder()
+    if (!granted) return
+    folderActiveRef.current = true
+    setFolderActive(true)
+    mirrorIfActive()
+  }
+
+  // Reconnect to a previously-granted folder on load (no prompt if permission persists).
+  useEffect(() => {
+    void getGrantedFolder().then((h) => { folderActiveRef.current = !!h; setFolderActive(!!h) })
+  }, [])
 
   // Open a live-composition signing session when the document opens / switches. On success the
   // controller adopts the server's S_v; on failure (offline / service down) we leave the session
@@ -469,6 +505,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
         docRef.current = updated
         onDocChange(updated)
         scheduleSave(updated)
+        mirrorIfActive()
         if (!ed.isDestroyed) ed.view.dispatch(ed.state.tr.setMeta(SCAS_HINT_META, true))
       })()
     } else {
@@ -570,6 +607,9 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
           receiptCount={receipts.length}
           chainStatus={chainStatus}
           onVerifyChain={verifyReceiptChain}
+          onExport={exportBundle}
+          onSaveToFolder={folderApiAvailable() ? saveToFolder : undefined}
+          folderActive={folderActive}
         />
 
         {/* Footer bar. On a phone it docks flush to the bottom (the top of the Safari URL

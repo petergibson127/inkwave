@@ -7,6 +7,6 @@ export default {
   // Phase-2 "rooms" model needs per-request server rendering (e.g. /r/:id share previews).
   ssr: false,
   async prerender() {
-    return ['/', '/about']
+    return ['/', '/about', '/verify']
   },
 } satisfies Config

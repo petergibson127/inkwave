@@ -102,8 +102,26 @@ Package manager is **pnpm** (`packageManager: pnpm@10.33.2`), not npm.
   to local S_v (degrades visibly). ReceiptPanel shows the chain + a verify action.
   Real keys come from env (INKWAVE_SIGNING_SK / INKWAVE_MASTER_SECRET / VITE_SIGNING_PK);
   published key at `/.well-known/inkwave-signing-key.json` + committed. 49 tests; live
-  loop browser-verified (session → receipts chain → verify ✓). Next: M4 (writer-held folder
-  storage) / M5 (open /verify page).
+  loop browser-verified (session → receipts chain → verify ✓).
+- **Provenance spine M4 — writer-held storage + export bundle: DONE.**
+  `provenance/bundle.ts` builds the self-verifying export bundle (content + snapshots
+  with OTS proofs + receipt chain + key ref); the ReceiptPanel "⤓ export bundle" downloads
+  it. `storage/folder.ts` (File System Access, Chromium-only) — grant a folder once
+  (`showDirectoryPicker`), persist the handle in IndexedDB, re-permission on return, and
+  mirror doc + snapshots + bundle into it on every provenance checkpoint ("🗀 save to
+  folder"). Non-Chromium falls back to OPFS + the export download. FSA grant needs a real
+  user gesture (not headless-testable) — verify manually in Chrome.
+- **Provenance spine M5 — open verifier + /verify: DONE.** `src/verify/index.ts` (pure,
+  framework-free): verifyBundle = content integrity (recompute contentHash + bundleHash)
+  + signed-chain (per-session prevHash + Ed25519, reuses receipts.ts) + kick consistency
+  (each in-S kick's lemma is in that period's SIGNED set) + friction score + OTS existence
+  tally. Verifies against the INDEPENDENTLY published key (not the bundle's claimed key).
+  `routes/Verify.tsx` + `/verify` (prerendered): drop in a bundle → full report, entirely
+  client-side, no login. 55 tests (6 verifier interop tests via the real server core);
+  round-trip browser-verified (export → /verify ✓; tampered → ✗). HONEST GAP: full "no
+  silent dodging" replay needs per-period content diffs (bundle carries period content
+  *hashes* only) — kick-consistency + friction are the current conformance signals; deeper
+  per-word replay is a planned extension. Next: M6 (paid cadence tier + billing).
 - **Week 4 — Glyphs, dashboard, certification: NOT STARTED.** No `glyphList.ts`,
   `ParagraphGlyphExtension`, `GlyphDashboard`, or certification PDF/QR. Per the v4 spec's
   out-of-scope list these are later/Phase-2; the spine (M2–M6) comes first.
