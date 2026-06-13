@@ -88,6 +88,12 @@ export async function forgetSaveFile(): Promise<void> {
   await idbDel(KEY)
 }
 
+/** Persist an externally-obtained file handle (e.g. from "Open…") as the save target, so edits
+ *  auto-save straight back to that file. */
+export async function setSaveFileHandle(handle: FileSystemFileHandle): Promise<void> {
+  await idbSet(KEY, handle)
+}
+
 /** Read back the saved file's heartbeat (which device last wrote it, and when) for the multi-device
  *  guard. null if no file / unreadable. */
 export async function readLocalHeartbeat(): Promise<{ session?: string; exportedAt?: string } | null> {

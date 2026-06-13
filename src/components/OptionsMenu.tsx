@@ -12,6 +12,8 @@ import { listMeta, upsertMeta } from '../storage/indexeddb'
 import { saveDocument, emptyTiptapDoc } from '../storage/opfs'
 import { withScasDefaults } from '../scas/state'
 import { parseTraceFile } from '../provenance/bundle'
+import { setOneDriveFilename } from '../storage/onedrive'
+import { setSaveFileHandle } from '../storage/folder'
 
 const ACTIVE_DOC_KEY = 'inkwave:activeDocumentId'
 const INK = '#5c2d8a'
@@ -19,13 +21,36 @@ const INK = '#5c2d8a'
 type ModalKey = 'recent' | 'save'
 const MODAL_TITLES: Record<ModalKey, string> = { recent: 'Open Recent', save: 'Save' }
 
-// Open a chosen file (Inkwave document or .trace.json export) as a new active document.
-async function openFile(file: File): Promise<void> {
+// Open a chosen file (Inkwave document or .trace.json export) and RESUME syncing to it:
+// - preserve the document id so it's the same document (OneDrive filename + multi-device heartbeat
+//   line up), and point OneDrive sync at this file's name;
+// - on Chromium, persist the writable file handle so local auto-save writes straight back to it.
+async function openFile(file: File, handle?: FileSystemFileHandle): Promise<void> {
   const data = parseTraceFile(await file.text())
   const contentJson = (data as { contentJson?: InkwaveDocument['contentJson'] }).contentJson ?? data.document?.contentJson
   const title = (data as { title?: string }).title ?? data.document?.title ?? file.name.replace(/\.(trace|insig)?\.?json$/, '')
   if (!contentJson) throw new Error('not an Inkwave document or export bundle')
-  await createDocument(title, contentJson)
+  const id = (data.document?.id as string | undefined) ?? uuidv4()
+  setOneDriveFilename(id, file.name)          // resume OneDrive sync to this file
+  if (handle) await setSaveFileHandle(handle) // resume local file sync (Chromium writable handle)
+  await createDocument(title, contentJson, id)
+}
+
+// Open via the native picker on Chromium (gives a WRITABLE handle so edits flow back to the file);
+// fall back to the plain file input elsewhere (OneDrive still resumes via the preserved id + name).
+async function openViaPicker(fileInput: HTMLInputElement | null): Promise<void> {
+  const w = window as unknown as { showOpenFilePicker?: (o: unknown) => Promise<FileSystemFileHandle[]> }
+  if (!w.showOpenFilePicker) { fileInput?.click(); return }
+  try {
+    const [handle] = await w.showOpenFilePicker({
+      multiple: false,
+      types: [{ description: 'Inkwave record', accept: { 'application/json': ['.trace.json', '.insig.json', '.json'] } }],
+    })
+    const file = await handle.getFile()
+    // Ask for write access now (in the click gesture) so future edits can save back to this file.
+    try { await (handle as unknown as { requestPermission?: (d: { mode: string }) => Promise<string> }).requestPermission?.({ mode: 'readwrite' }) } catch { /* read-only is fine */ }
+    await openFile(file, handle)
+  } catch { /* cancelled / bad file */ }
 }
 
 // Switch the active document by id and reload so the editor loads it cleanly.
@@ -34,10 +59,10 @@ function openDocument(id: string) {
   window.location.reload()
 }
 
-async function createDocument(title: string, contentJson: InkwaveDocument['contentJson']): Promise<void> {
+async function createDocument(title: string, contentJson: InkwaveDocument['contentJson'], id: string = uuidv4()): Promise<void> {
   const now = new Date().toISOString()
   const doc = withScasDefaults({
-    id: uuidv4(), title, contentJson, createdAt: now, updatedAt: now,
+    id, title, contentJson, createdAt: now, updatedAt: now,
     schemaVersion: '0.1.0', scasLimitN: 'infinite', scasSessionSeed: uuidv4(),
   })
   await saveDocument(doc)
@@ -93,7 +118,7 @@ export function OptionsMenu({
 
   const items: Array<{ label: string; run: () => void }> = [
     { label: 'New', run: () => void createDocument('Untitled', emptyTiptapDoc()) },
-    { label: 'Open…', run: () => fileInputRef.current?.click() },
+    { label: 'Open…', run: () => void openViaPicker(fileInputRef.current) },
     { label: 'Open Recent', run: () => setModal('recent') },
     { label: 'Save…', run: () => setModal('save') },
     { label: 'Sign in', run: () => navigate('/login') },
