@@ -1,4 +1,4 @@
-import type { ReactNode, RefObject } from 'react'
+import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
 
 // The scroll "paper" chrome — the white page surface and the parchment column with its drop
 // shadow. Shared by BOTH the live editor (TiptapEditor) and the prerendered/loading shell
@@ -17,8 +17,33 @@ export function Scroll({
   paperRef?: RefObject<HTMLDivElement>
   containerRef?: RefObject<HTMLDivElement>
 }) {
+  // Fade the background waves out while the page is scrolled FAST (the tiled pattern shimmers
+  // otherwise) and back in when it slows. Toggles `.waves-fast` based on scroll velocity.
+  const surfaceRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    let lastY = window.scrollY
+    let lastT = performance.now()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const onScroll = () => {
+      const y = window.scrollY
+      const t = performance.now()
+      const v = Math.abs(y - lastY) / Math.max(1, t - lastT) // px per ms
+      lastY = y
+      lastT = t
+      const el = surfaceRef.current
+      if (!el) return
+      if (v > 1.4) {
+        el.classList.add('waves-fast')
+        clearTimeout(timer)
+        timer = setTimeout(() => el.classList.remove('waves-fast'), 180) // fade back in once it slows
+      }
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => { window.removeEventListener('scroll', onScroll); clearTimeout(timer) }
+  }, [])
+
   return (
-    <div className="inkwave-editor-surface">
+    <div ref={surfaceRef} className="inkwave-editor-surface">
       {/* Parchment column — slightly wider than the text measure */}
       <div
         ref={paperRef}

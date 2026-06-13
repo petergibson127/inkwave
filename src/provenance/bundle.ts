@@ -7,6 +7,28 @@ import type { InkwaveDocument, Snapshot, SignedReceipt, TiptapJSON } from '../ty
 import { signingPublicKeyHex } from './receipts'
 import { POOL_ID } from '../scas/pool'
 
+// A clean, readable plain-text copy of the document — block nodes (paragraphs/headings/list items)
+// separated by blank lines, hard breaks as newlines. Sits near the top of the bundle so the writing
+// is legible to a human opening the file, with no markdown syntax to parse.
+function pmToText(doc: TiptapJSON): string {
+  const blocks: string[] = []
+  const inline = (node: { type?: string; text?: string; content?: unknown[] }): string => {
+    if (node.type === 'text') return node.text ?? ''
+    if (node.type === 'hardBreak') return '\n'
+    return (node.content as typeof node[] ?? []).map(inline).join('')
+  }
+  const walk = (node: { type?: string; text?: string; content?: unknown[] }): void => {
+    const t = node.type
+    if (t === 'paragraph' || t === 'heading' || t === 'listItem' || t === 'blockquote' || t === 'codeBlock') {
+      blocks.push((node.content as typeof node[] ?? []).map(inline).join('').trim())
+    } else if (Array.isArray(node.content)) {
+      ;(node.content as typeof node[]).forEach(walk)
+    }
+  }
+  walk(doc as { type?: string; content?: unknown[] })
+  return blocks.filter((b) => b.length > 0).join('\n\n') + '\n'
+}
+
 export interface BundleSummary {
   what: string
   title: string
@@ -23,6 +45,7 @@ export interface BundleSummary {
 export interface ExportBundle {
   v: 1
   summary?: BundleSummary // human-readable header (first key) — what the file is, at a glance
+  text?: string           // a clean, readable plain-text copy of the writing, near the top
   exportedAt: string
   document: {
     id: string
@@ -71,6 +94,7 @@ export function buildExportBundle(doc: InkwaveDocument, snapshots: Snapshot[]): 
   return {
     v: 1,
     summary,
+    text: pmToText(doc.contentJson),
     exportedAt,
     document: {
       id: doc.id,
@@ -115,9 +139,12 @@ export function bundleReadme(s?: BundleSummary): string {
   ].filter((l) => l !== '').join('\n') + '\n'
 }
 
+function slugOf(doc: InkwaveDocument): string {
+  return (doc.title || 'untitled').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'untitled'
+}
+
 export function bundleFilename(doc: InkwaveDocument): string {
-  const slug = (doc.title || 'untitled').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'untitled'
-  return `inkwave-${slug}.json`
+  return `inkwave-${slugOf(doc)}.json`
 }
 
 /** Trigger a download of the bundle as pretty-printed JSON (browser only). */

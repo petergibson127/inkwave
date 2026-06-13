@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Snapshot } from '../types/document'
 
 // Minimal M1 receipt panel: the growing record of tamper-evident snapshots the writer holds.
@@ -30,12 +30,24 @@ export function ReceiptPanel({
   oneDriveAccount?: string | null
 }) {
   const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
   const n = snapshots.length
   const pending = snapshots.some((s) => s.ots.status === 'pending')
 
+  // Close the panel when clicking outside it (or pressing Escape).
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => { if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey) }
+  }, [open])
+
   return (
     <div
-      className="fixed bottom-4 left-4 z-40 font-serif text-xs select-none"
+      ref={rootRef}
+      className="fixed bottom-4 left-4 z-40 font-serif text-sm select-none"
       style={{ color: '#5c2d8a' }}
     >
       <button
@@ -88,7 +100,7 @@ export function ReceiptPanel({
               style={{ borderBottom: '1px solid rgba(92, 45, 138, 0.12)', color: folderActive ? '#246b24' : '#5c2d8a' }}
               title={folderAvailable ? 'Mirror your work into a folder you control (cloud-synced)' : 'Download your record (folder sync needs Chrome/Edge/Brave)'}
             >
-              {folderAvailable ? (folderActive ? '🗀 folder linked — re-save' : '🗀 save to folder…') : '💾 save record'}
+              {folderActive ? '🗀 folder linked — re-sync' : '🗀 sync to folder'}
             </button>
           )}
           {onSyncOneDrive && (

@@ -79,13 +79,17 @@ export function OptionsMenu({
     })
   }
 
-  const PAPER_INSET = 12
+  // Anchor the menu's right edge to the kebab (so it comes up overlapping the toolbar), extending
+  // toward the page edge but never closer than EDGE_BUFFER — at which point it keeps that buffer.
+  const EDGE_BUFFER = 10
   const menuStyle: CSSProperties = { border: `1px solid ${INK}66`, borderRadius: '10px' }
   if (menuOpen) {
     const br = btnRef.current?.getBoundingClientRect()
     menuStyle.position = 'fixed'
-    menuStyle.bottom = br ? Math.round(window.innerHeight - br.top + 8) : 60
-    menuStyle.right = Math.max(8, Math.round(window.innerWidth - paperRight + PAPER_INSET))
+    menuStyle.bottom = br ? Math.round(window.innerHeight - br.top + 6) : 60
+    menuStyle.right = br
+      ? Math.max(EDGE_BUFFER, Math.round(window.innerWidth - br.right))
+      : Math.max(EDGE_BUFFER, Math.round(window.innerWidth - paperRight + 12))
   }
 
   return (
@@ -146,11 +150,11 @@ function SavePanel({ onExportBundle, onSave, folderAvailable, onSyncOneDrive, on
   return (
     <div className="flex flex-col gap-2.5 mt-2">
       <MenuButton onClick={onSave ? () => { onSave(); onDone() } : undefined}>
-        {folderAvailable ? '🗀 Save to a folder' : '💾 Save record'}
+        🗀 Sync to folder
         <span className="block text-xs text-stone-400">
           {folderAvailable
             ? 'mirror your work into a folder you control (auto-syncs if it’s a cloud folder)'
-            : 'downloads your self-verifying record (folder sync needs Chrome, Edge or Brave)'}
+            : 'downloads your self-verifying record (live folder sync needs Chrome, Edge or Brave)'}
         </span>
       </MenuButton>
       {onSyncOneDrive && (
