@@ -7,7 +7,7 @@
 // The folder-mirror to a writer-granted directory arrives in M4.
 
 import { v4 as uuidv4 } from 'uuid'
-import type { InkwaveDocument, Snapshot, TiptapJSON } from '../types/document'
+import type { InkwaveDocument, Snapshot, SignedReceipt, TiptapJSON } from '../types/document'
 import { contentHash, bundleHash } from './hash'
 import { stampBundle, upgradeProof } from './ots'
 
@@ -74,12 +74,15 @@ export function countWords(contentJson: TiptapJSON): number {
 export async function createSnapshotIfChanged(
   doc: InkwaveDocument,
   trigger: Snapshot['trigger'],
+  receipts: SignedReceipt[] = [],
 ): Promise<Snapshot | null> {
   const cHash = await contentHash(doc.contentJson)
   const snaps = await readSnapshotsFile(doc.id)
   const last = snaps[snaps.length - 1]
   if (last && last.contentHash === cHash) return null
 
+  // bundleHash commits to content AND the live-composition receipt chain, so the OTS proof (M2)
+  // anchors the whole signed record to Bitcoin.
   const snapshot: Snapshot = {
     id: uuidv4(),
     documentId: doc.id,
@@ -88,8 +91,8 @@ export async function createSnapshotIfChanged(
     wordCount: countWords(doc.contentJson),
     contentHash: cHash,
     contentJson: doc.contentJson,
-    receipts: [],
-    bundleHash: await bundleHash(cHash, []),
+    receipts,
+    bundleHash: await bundleHash(cHash, receipts),
     ots: { status: 'unstamped' },
   }
   await writeSnapshotsFile(doc.id, [...snaps, snapshot])

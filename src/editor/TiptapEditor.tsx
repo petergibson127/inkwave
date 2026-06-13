@@ -26,7 +26,10 @@ import { ScasController } from '../scas/controller'
 import { normalizeScasState, DEFAULT_SET_SIZE } from '../scas/state'
 import { createSnapshotIfChanged, listSnapshots, stampSnapshot, drainUnstamped, upgradePending } from '../provenance/snapshots'
 import { ReceiptPanel } from '../components/ReceiptPanel'
-import type { Snapshot } from '../types/document'
+import { SessionRunner } from '../provenance/session'
+import { contentHash } from '../provenance/hash'
+import { verifyChain, signingPublicKeyHex } from '../provenance/receipts'
+import type { Snapshot, SignedReceipt, KickEvent } from '../types/document'
 
 // Wall-clock resample cadence for the rotating exclusion set S_v (v4 spec §4.2: 20–60 s).
 const RESAMPLE_INTERVAL_MS = 30_000
@@ -62,6 +65,14 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   // race the OPFS read-modify-write.
   const [snapshots, setSnapshots] = useState<Snapshot[]>([])
   const snapQueueRef = useRef<Promise<void>>(Promise.resolve())
+
+  // Live-composition signing session (M3). The runner holds the server-issued S_v + the receipt
+  // chain; null while opening or when the service is unreachable (then the controller falls back to
+  // locally-derived S_v — composition degrades visibly rather than blocking writing).
+  const sessionRef = useRef<SessionRunner | null>(null)
+  const periodKicksRef = useRef<KickEvent[]>([]) // kicks resolved during the current signing period
+  const [receipts, setReceipts] = useState<SignedReceipt[]>([])
+  const [chainStatus, setChainStatus] = useState<string | null>(null)
 
   const [currentParagraphIndex, setCurrentParagraphIndex] = useState(0)
   const [showHints, setShowHints] = useState(true)
@@ -233,6 +244,11 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
         get lookup() { const l = scasRef.current!.lookup(); return { version: l.version, locked: [...l.locked], liveKicks: [...l.liveKicks], immune: [...l.immune] } },
         inSv: (lemma: string) => scasRef.current!.inSv(lemma),
         get hint() { return hintStateRef.current },
+        get session() {
+          const r = sessionRef.current
+          return r ? { token: r.sessionToken.slice(0, 12), setVersion: r.current.setVersion, receipts: r.receipts.length } : null
+        },
+        runPeriod: () => runPeriodRef.current(), // fire a signing period now (test/debug)
       }
     }
   }, [editor])
@@ -388,9 +404,11 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   // kick, so they never snapshot.
   useEffect(() => {
     if (!editor) return
-    const off = scasRef.current!.kicks.on(() => {
+    const off = scasRef.current!.kicks.on((event) => {
+      periodKicksRef.current.push(event) // buffer for the next signed period (M3)
       enqueueSnapshotWork(async () => {
-        const snap = await createSnapshotIfChanged(docRef.current, 'kick')
+        // Anchor the receipt chain so far into the snapshot's bundleHash (so OTS commits to it).
+        const snap = await createSnapshotIfChanged(docRef.current, 'kick', sessionRef.current?.receipts ?? [])
         if (!snap) return
         setSnapshots((prev) => [...prev, snap])
         const stamped = await stampSnapshot(snap.documentId, snap.id) // pending proof
@@ -406,21 +424,75 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     enqueueSnapshotWork(async () => { await upgradePending(docId); await refreshSnapshots(docId) })
   }
 
-  // Resample S_v on a wall-clock timer. Verdicts are frozen (locked ∪ liveKicks persist), so this
-  // never reflows committed text — it only changes which lemmas can kick on FUTURE commits, and
-  // expires the immunity of satisfied lemmas so they can re-arm.
+  // Open a live-composition signing session when the document opens / switches. On success the
+  // controller adopts the server's S_v; on failure (offline / service down) we leave the session
+  // null and the controller keeps its locally-derived S_v (composition degrades visibly).
   useEffect(() => {
-    if (!editor) return
-    const id = setInterval(() => {
-      if (editor.isDestroyed) return
+    let cancelled = false
+    sessionRef.current = null
+    periodKicksRef.current = []
+    setReceipts([])
+    setChainStatus(null)
+    const docId = doc.id
+    void SessionRunner.open(docId).then((runner) => {
+      if (cancelled || !runner || docRef.current.id !== docId) return
+      sessionRef.current = runner
+      scasRef.current!.useServerSet(runner.current.lemmas, runner.current.setVersion)
+      if (editor && !editor.isDestroyed) editor.view.dispatch(editor.state.tr.setMeta(SCAS_HINT_META, true))
+    })
+    return () => { cancelled = true }
+  }, [doc.id, editor]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The signing period. With a session: sign the period's receipt (content + resolved kicks), chain
+  // it, and adopt the next server-issued set. Without one: fall back to a local resample (M0).
+  // Verdicts are frozen (locked ∪ liveKicks persist), so neither reflows committed text. Held in a
+  // ref so the interval always runs the latest closure (no stale editor/refs).
+  const runPeriodRef = useRef<() => void>(() => {})
+  runPeriodRef.current = () => {
+    const ed = editorRef.current
+    if (!ed || ed.isDestroyed) return
+    const runner = sessionRef.current
+    if (runner) {
+      void (async () => {
+        const kicks = periodKicksRef.current
+        const cHash = await contentHash(docRef.current.contentJson)
+        const receipt = await runner.closePeriod(cHash, kicks)
+        if (!receipt) return // offline — keep the kicks buffered, retry next period
+        periodKicksRef.current = []
+        scasRef.current!.useServerSet(runner.current.lemmas, runner.current.setVersion)
+        setReceipts([...runner.receipts])
+        const updated: InkwaveDocument = {
+          ...docRef.current,
+          scasState: scasRef.current!.state,
+          scasReceipts: [...runner.receipts],
+        }
+        docRef.current = updated
+        onDocChange(updated)
+        scheduleSave(updated)
+        if (!ed.isDestroyed) ed.view.dispatch(ed.state.tr.setMeta(SCAS_HINT_META, true))
+      })()
+    } else {
       scasRef.current!.resampleNow()
       const updated: InkwaveDocument = { ...docRef.current, scasState: scasRef.current!.state }
       docRef.current = updated
       onDocChange(updated)
       scheduleSave(updated)
-    }, RESAMPLE_INTERVAL_MS)
+    }
+  }
+  useEffect(() => {
+    if (!editor) return
+    const id = setInterval(() => runPeriodRef.current(), RESAMPLE_INTERVAL_MS)
     return () => clearInterval(id)
   }, [editor]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Verify the held receipt chain against the published key (the guarantee, client-side).
+  function verifyReceiptChain() {
+    const runner = sessionRef.current
+    if (!runner || runner.receipts.length === 0) { setChainStatus('no receipts yet'); return }
+    void verifyChain(runner.receipts, runner.sessionToken, signingPublicKeyHex()).then((v) => {
+      setChainStatus(v.ok ? `✓ ${v.verified} receipts verified` : `✗ ${v.reason}`)
+    })
+  }
 
   function handleLimitChange(next: number | 'infinite') {
     const updated: InkwaveDocument = {
@@ -492,7 +564,13 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
 
         <CycleHintPanel active={cycleActive} showHints={showHints} containerRight={containerRight} />
 
-        <ReceiptPanel snapshots={snapshots} onCheckBitcoin={checkBitcoin} />
+        <ReceiptPanel
+          snapshots={snapshots}
+          onCheckBitcoin={checkBitcoin}
+          receiptCount={receipts.length}
+          chainStatus={chainStatus}
+          onVerifyChain={verifyReceiptChain}
+        />
 
         {/* Footer bar. On a phone it docks flush to the bottom (the top of the Safari URL
             bar) with flat bottom corners; on desktop it floats as a rounded pill. */}

@@ -7,9 +7,15 @@ import type { Snapshot } from '../types/document'
 export function ReceiptPanel({
   snapshots,
   onCheckBitcoin,
+  receiptCount = 0,
+  chainStatus,
+  onVerifyChain,
 }: {
   snapshots: Snapshot[]
   onCheckBitcoin?: () => void
+  receiptCount?: number
+  chainStatus?: string | null
+  onVerifyChain?: () => void
 }) {
   const [open, setOpen] = useState(false)
   const n = snapshots.length
@@ -27,10 +33,10 @@ export function ReceiptPanel({
         style={{ border: '1px solid rgba(92, 45, 138, 0.75)', borderRadius: 12 }}
         title="Provenance record (held by you)"
       >
-        ◈ {n} snapshot{n === 1 ? '' : 's'}
+        ◈ {n} snapshot{n === 1 ? '' : 's'}{receiptCount > 0 ? ` · ${receiptCount} receipt${receiptCount === 1 ? '' : 's'}` : ''}
       </button>
 
-      {open && n > 0 && (
+      {open && (n > 0 || receiptCount > 0) && (
         <div
           className="mt-1.5 bg-white overflow-auto"
           style={{
@@ -40,6 +46,18 @@ export function ReceiptPanel({
             minWidth: 230,
           }}
         >
+          {onVerifyChain && (
+            <button
+              type="button"
+              onClick={onVerifyChain}
+              className="w-full px-2.5 py-1.5 text-left hover:bg-stone-50"
+              style={{ borderBottom: '1px solid rgba(92, 45, 138, 0.12)' }}
+              title="Verify the signed receipt chain against the published key"
+            >
+              ✦ live-composition: {receiptCount} signed {receiptCount === 1 ? 'receipt' : 'receipts'}
+              {chainStatus ? ` — ${chainStatus}` : ' · verify…'}
+            </button>
+          )}
           {onCheckBitcoin && pending && (
             <button
               type="button"

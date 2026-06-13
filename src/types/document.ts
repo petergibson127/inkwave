@@ -32,6 +32,7 @@ export interface InkwaveDocument {
                                    // itself never reaches the client once the signing service exists.
   scasPoolId?: string              // id + hash of the public pool P (reproducibility)
   scasState?: ScasState            // the ban-credit / satisfied / version overlay (persisted)
+  scasReceipts?: SignedReceipt[]   // the live-composition signed receipt chain for this doc (M3)
 }
 
 // ─── SCAS engine state (M0) ───────────────────────────────────────────────────

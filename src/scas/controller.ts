@@ -105,6 +105,16 @@ export class ScasController {
     return this.currentSet.has(lemma)
   }
 
+  /**
+   * Adopt a server-issued exclusion set (M3): the live signing session is authoritative for S_v, so
+   * this replaces the locally-derived set. Advancing the version expires stale immunity (same as a
+   * local resample); locked + liveKicks persist, so committed verdicts never churn.
+   */
+  useServerSet(lemmas: Set<string>, version: number): void {
+    if (version !== this.state.version) this.state = resample(this.state, version)
+    this.currentSet = lemmas
+  }
+
   lookup(): ScasLookup {
     return buildLookup(this.state)
   }

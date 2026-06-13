@@ -88,8 +88,22 @@ Package manager is **pnpm** (`packageManager: pnpm@10.33.2`), not npm.
   `api/stamp` fallback: it logs nothing and only handles a hash, so verification stays
   independently Bitcoin-anchored. Client wrapper `provenance/ots.ts` POSTs to `/api/ots`;
   the ReceiptPanel shows status + a "check Bitcoin" upgrade. `vercel.json` excludes `/api`
-  from the SPA rewrite. Browser-verified to pending. Next: M3 (live-composition signing
-  service — needs Vercel + signing-key/master-secret decisions).
+  from the SPA rewrite. Browser-verified to pending.
+- **Provenance spine M3 — live-composition signing service: DONE.** A stateless,
+  content-free signing service issues a rotating server-held exclusion set S_v and signs
+  hash-chained receipts. Server (Node; Vercel functions + dev middleware):
+  `api/_provenance-core.mjs` (Ed25519 @noble, seed derivation H(masterSecret,docId,v),
+  S_v INDEX sampling → bitmask, signPeriod), `api/session.mjs`, `api/sign.mjs`. Client:
+  `provenance/receipts.ts` (verifyReceipt/verifyChain), `provenance/session.ts`
+  (SessionRunner). The editor opens a session on doc load, drives the SCAS controller off
+  the server's S_v (`controller.useServerSet`), and on the period timer signs the period's
+  receipt (content + resolved kicks, hashes only) + rotates the set; receipts persist
+  (`scasReceipts`) and fold into snapshot bundles so OTS anchors them. Offline → falls back
+  to local S_v (degrades visibly). ReceiptPanel shows the chain + a verify action.
+  Real keys come from env (INKWAVE_SIGNING_SK / INKWAVE_MASTER_SECRET / VITE_SIGNING_PK);
+  published key at `/.well-known/inkwave-signing-key.json` + committed. 49 tests; live
+  loop browser-verified (session → receipts chain → verify ✓). Next: M4 (writer-held folder
+  storage) / M5 (open /verify page).
 - **Week 4 — Glyphs, dashboard, certification: NOT STARTED.** No `glyphList.ts`,
   `ParagraphGlyphExtension`, `GlyphDashboard`, or certification PDF/QR. Per the v4 spec's
   out-of-scope list these are later/Phase-2; the spine (M2–M6) comes first.

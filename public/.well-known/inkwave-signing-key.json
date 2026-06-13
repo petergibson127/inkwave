@@ -1,0 +1,7 @@
+{
+  "keyId": "inkwave-signing-v1",
+  "alg": "Ed25519",
+  "publicKeyHex": "b1fa2bad8ccb7451f2db3ae81851197dad5e5f6fca26297c9d6cc8e697db8b51",
+  "note": "Inkwave receipt-signing public key. Verify a signed receipt by checking its Ed25519 signature over the JCS-canonical signedCore against this key. Also embedded in the app (VITE_SIGNING_PK) and committed to the git repo, so verification never depends on inkwave.studio being online.",
+  "validFrom": "2026-06-13"
+}
