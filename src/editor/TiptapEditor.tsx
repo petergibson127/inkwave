@@ -33,7 +33,6 @@ import { fileSaveAvailable, pickSaveFile, getSaveFileHandle, writeBundleToFile }
 import { oneDriveConfigured, oneDriveAccount, syncToOneDrive, startOneDriveSignIn, oneDriveSyncPending, clearOneDriveSyncPending, oneDrivePath, setChosenFolder, addRecentFolder, oneDriveFilename, setOneDriveFilename, type OneDriveFolder } from '../storage/onedrive'
 import { SyncStatus } from '../components/SyncStatus'
 import { OneDriveFolderPicker } from '../components/OneDriveFolderPicker'
-import { useZoomScale } from './useZoomScale'
 import { contentHash } from '../provenance/hash'
 import { verifyChain, signingPublicKeyHex } from '../provenance/receipts'
 import type { Snapshot, SignedReceipt, KickEvent } from '../types/document'
@@ -95,7 +94,6 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   const [folderPickerOpen, setFolderPickerOpen] = useState(false)
   const [fileName, setFileName] = useState<string | null>(null) // linked local save file name (Chromium)
   const [lastFileSave, setLastFileSave] = useState<number | null>(null)
-  const zoom = useZoomScale() // counter browser zoom so the toolbar stays ~100%
   const [oneDriveUrl, setOneDriveUrl] = useState<string | null>(null) // synced file's webUrl (open in folder)
 
   const [currentParagraphIndex, setCurrentParagraphIndex] = useState(0)
@@ -737,22 +735,25 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
             Safari → OneDrive. The label reads clearly in every state. */}
         {(() => {
           if (fileSaveAvailable()) {
-            if (!fileName) return null // nothing to show until they save to a folder
-            return (
+            // Regular browser → local folder. Always show the indicator (a "Save to a folder"
+            // prompt before a file is linked, so it never just disappears).
+            return fileName ? (
               <SyncStatus
-                label={lastFileSave ? '✓ Synced to folder' : '🗀 Folder — not saved yet'}
+                label={lastFileSave ? '✓ Synced to folder' : '🗀 Saving to folder…'}
                 synced={!!lastFileSave}
                 path={fileName}
                 lastSync={lastFileSave}
                 tooltip={`Saving to ${fileName}`}
                 onChangeFolder={saveAsFile}
               />
+            ) : (
+              <SyncStatus label="🗀 Save to a folder" synced={false} onClick={() => void saveToFile()} />
             )
           }
           if (!oneDriveConfigured()) return null
           return oneDriveAcct ? (
             <SyncStatus
-              label={lastSync ? '✓ Synced to folder' : '☁ OneDrive — not yet syncing'}
+              label={lastSync ? '✓ Synced to OneDrive' : '☁ OneDrive — not yet syncing'}
               synced={!!lastSync}
               path={oneDrivePath(doc)}
               lastSync={lastSync}
@@ -785,9 +786,6 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
               opacity: barVisible ? 1 : 0,
               pointerEvents: barVisible ? 'auto' : 'none',
               transition: 'opacity 160ms ease',
-              // Counter page zoom on desktop so the pill keeps its size (no transform at 100%).
-              transform: !isTouch && zoom !== 1 ? `scale(${zoom})` : undefined,
-              transformOrigin: 'bottom center',
             }}
           >
             {/* Flat style sub-bar — flush above the keyboard (when text is selected) or
