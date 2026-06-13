@@ -94,6 +94,7 @@ export function OptionsMenu({
     { label: 'Open…', run: () => fileInputRef.current?.click() },
     { label: 'Open Recent', run: () => setModal('recent') },
     { label: 'Save…', run: () => setModal('save') },
+    { label: 'Sign in', run: () => navigate('/login') },
     { label: 'About', run: () => navigate('/about') },
   ]
   if (import.meta.env.DEV) {

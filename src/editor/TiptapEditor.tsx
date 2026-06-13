@@ -33,6 +33,7 @@ import { fileSaveAvailable, pickSaveFile, getSaveFileHandle, writeBundleToFile }
 import { oneDriveConfigured, oneDriveAccount, syncToOneDrive, startOneDriveSignIn, oneDriveSyncPending, clearOneDriveSyncPending, oneDrivePath, setChosenFolder, type OneDriveFolder } from '../storage/onedrive'
 import { SyncStatus } from '../components/SyncStatus'
 import { OneDriveFolderPicker } from '../components/OneDriveFolderPicker'
+import { useZoomScale } from './useZoomScale'
 import { contentHash } from '../provenance/hash'
 import { verifyChain, signingPublicKeyHex } from '../provenance/receipts'
 import type { Snapshot, SignedReceipt, KickEvent } from '../types/document'
@@ -94,6 +95,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   const [folderPickerOpen, setFolderPickerOpen] = useState(false)
   const [fileName, setFileName] = useState<string | null>(null) // linked local save file name (Chromium)
   const [lastFileSave, setLastFileSave] = useState<number | null>(null)
+  const zoom = useZoomScale() // counter browser zoom so the toolbar stays ~100%
 
   const [currentParagraphIndex, setCurrentParagraphIndex] = useState(0)
   const [showHints, setShowHints] = useState(true)
@@ -770,6 +772,9 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
               opacity: barVisible ? 1 : 0,
               pointerEvents: barVisible ? 'auto' : 'none',
               transition: 'opacity 160ms ease',
+              // Counter page zoom on desktop so the pill keeps its size (no transform at 100%).
+              transform: !isTouch && zoom !== 1 ? `scale(${zoom})` : undefined,
+              transformOrigin: 'bottom center',
             }}
           >
             {/* Flat style sub-bar — flush above the keyboard (when text is selected) or
