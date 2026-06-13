@@ -21,6 +21,13 @@ const devApi: PluginOption = {
       if (path === '/api/sign') return (await prov()).handleSign(body)
       throw new Error('not found')
     }
+    // GET /api/pubkey — the signing service's actual public key.
+    server.middlewares.use('/api/pubkey', async (_req, res) => {
+      // @ts-expect-error - untyped Node-only ESM module
+      const { publicKeyHex } = await import('./api/_provenance-core.mjs')
+      res.setHeader('content-type', 'application/json')
+      res.end(JSON.stringify({ alg: 'Ed25519', keyId: 'inkwave-signing-v1', publicKeyHex: await publicKeyHex() }))
+    })
     for (const path of ['/api/ots', '/api/session', '/api/sign']) {
       server.middlewares.use(path, (req, res) => {
         if (req.method !== 'POST') { res.statusCode = 405; return res.end('Method Not Allowed') }
