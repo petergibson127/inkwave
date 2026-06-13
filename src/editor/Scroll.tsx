@@ -32,7 +32,7 @@ export function Scroll({
       lastT = t
       const el = surfaceRef.current
       if (!el) return
-      if (v > 1.4) {
+      if (v > 0.9) {
         el.classList.add('waves-fast')
         clearTimeout(timer)
         timer = setTimeout(() => el.classList.remove('waves-fast'), 180) // fade back in once it slows
