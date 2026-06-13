@@ -437,6 +437,13 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     downloadBundle(bundle, bundleFilename(docRef.current))
   }
 
+  // Primary "Save" — works on every browser. Chromium (Chrome/Edge/Brave) mirrors to a granted
+  // folder via File System Access; Firefox/Safari (no folder API) download the record instead.
+  function saveRecord() {
+    if (folderApiAvailable()) void saveToFolder()
+    else exportBundle()
+  }
+
   // Mirror the document + snapshots + bundle into the writer's granted folder (no-op if none).
   function mirrorIfActive() {
     if (!folderActiveRef.current) return
@@ -615,7 +622,8 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
           chainStatus={chainStatus}
           onVerifyChain={verifyReceiptChain}
           onExport={exportBundle}
-          onSaveToFolder={folderApiAvailable() ? saveToFolder : undefined}
+          onSave={saveRecord}
+          folderAvailable={folderApiAvailable()}
           folderActive={folderActive}
         />
 
@@ -672,7 +680,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
               <OptionsMenu
                 paperRight={paperRight}
                 onExportBundle={exportBundle}
-                onSaveToFolder={saveToFolder}
+                onSave={saveRecord}
                 folderAvailable={folderApiAvailable()}
               />
             </div>

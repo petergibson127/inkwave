@@ -37,12 +37,12 @@ async function createDocument(title: string, contentJson: InkwaveDocument['conte
 export function OptionsMenu({
   paperRight,
   onExportBundle,
-  onSaveToFolder,
+  onSave,
   folderAvailable,
 }: {
   paperRight: number
   onExportBundle?: () => void
-  onSaveToFolder?: () => void
+  onSave?: () => void
   folderAvailable?: boolean
 }) {
   const navigate = useNavigate()
@@ -111,7 +111,7 @@ export function OptionsMenu({
 
       {modal && (
         <Modal title={MODAL_TITLES[modal]} onClose={() => setModal(null)}>
-          {modal === 'save' && <SavePanel onExportBundle={onExportBundle} onSaveToFolder={onSaveToFolder} folderAvailable={folderAvailable} onDone={() => setModal(null)} />}
+          {modal === 'save' && <SavePanel onExportBundle={onExportBundle} onSave={onSave} folderAvailable={folderAvailable} onDone={() => setModal(null)} />}
           {modal === 'open' && <OpenPanel onClose={() => setModal(null)} />}
           {modal === 'recent' && <RecentPanel />}
         </Modal>
@@ -135,20 +135,22 @@ function MenuButton({ onClick, children }: { onClick?: () => void; children: Rea
   )
 }
 
-function SavePanel({ onExportBundle, onSaveToFolder, folderAvailable, onDone }: {
-  onExportBundle?: () => void; onSaveToFolder?: () => void; folderAvailable?: boolean; onDone: () => void
+function SavePanel({ onExportBundle, onSave, folderAvailable, onDone }: {
+  onExportBundle?: () => void; onSave?: () => void; folderAvailable?: boolean; onDone: () => void
 }) {
   return (
     <div className="flex flex-col gap-2.5 mt-2">
-      <MenuButton onClick={onSaveToFolder && folderAvailable ? () => { onSaveToFolder(); onDone() } : undefined}>
-        🗀 Save to a folder<span className="block text-xs text-stone-400">mirror your work into a folder you control (auto-syncs if it’s a cloud folder)</span>
+      <MenuButton onClick={onSave ? () => { onSave(); onDone() } : undefined}>
+        {folderAvailable ? '🗀 Save to a folder' : '💾 Save record'}
+        <span className="block text-xs text-stone-400">
+          {folderAvailable
+            ? 'mirror your work into a folder you control (auto-syncs if it’s a cloud folder)'
+            : 'downloads your self-verifying record (folder sync needs Chrome, Edge or Brave)'}
+        </span>
       </MenuButton>
       <MenuButton onClick={onExportBundle ? () => { onExportBundle(); onDone() } : undefined}>
-        ⤓ Download record<span className="block text-xs text-stone-400">a self-verifying file you can keep or check at /verify</span>
+        ⤓ Download a copy<span className="block text-xs text-stone-400">a self-verifying file you can keep or check at /verify</span>
       </MenuButton>
-      {!folderAvailable && (
-        <p className="text-xs text-stone-400 px-1">Saving to a folder needs Chrome/Edge; on other browsers use Download.</p>
-      )}
     </div>
   )
 }

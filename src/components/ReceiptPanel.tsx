@@ -11,7 +11,8 @@ export function ReceiptPanel({
   chainStatus,
   onVerifyChain,
   onExport,
-  onSaveToFolder,
+  onSave,
+  folderAvailable,
   folderActive,
 }: {
   snapshots: Snapshot[]
@@ -20,7 +21,8 @@ export function ReceiptPanel({
   chainStatus?: string | null
   onVerifyChain?: () => void
   onExport?: () => void
-  onSaveToFolder?: () => void
+  onSave?: () => void
+  folderAvailable?: boolean
   folderActive?: boolean
 }) {
   const [open, setOpen] = useState(false)
@@ -74,26 +76,26 @@ export function ReceiptPanel({
               ⏳ check Bitcoin confirmation…
             </button>
           )}
-          {onExport && (
+          {onSave && (
+            <button
+              type="button"
+              onClick={onSave}
+              className="w-full px-2.5 py-1.5 text-left hover:bg-stone-50"
+              style={{ borderBottom: '1px solid rgba(92, 45, 138, 0.12)', color: folderActive ? '#246b24' : '#5c2d8a' }}
+              title={folderAvailable ? 'Mirror your work into a folder you control (cloud-synced)' : 'Download your record (folder sync needs Chrome/Edge/Brave)'}
+            >
+              {folderAvailable ? (folderActive ? '🗀 folder linked — re-save' : '🗀 save to folder…') : '💾 save record'}
+            </button>
+          )}
+          {onExport && folderAvailable && (
             <button
               type="button"
               onClick={onExport}
               className="w-full px-2.5 py-1.5 text-left hover:bg-stone-50"
               style={{ borderBottom: '1px solid rgba(92, 45, 138, 0.12)', color: '#5c2d8a' }}
-              title="Download the self-verifying record (open it at /verify)"
+              title="Download a copy of the self-verifying record (open it at /verify)"
             >
-              ⤓ export bundle
-            </button>
-          )}
-          {onSaveToFolder && (
-            <button
-              type="button"
-              onClick={onSaveToFolder}
-              className="w-full px-2.5 py-1.5 text-left hover:bg-stone-50"
-              style={{ borderBottom: '1px solid rgba(92, 45, 138, 0.12)', color: folderActive ? '#246b24' : '#5c2d8a' }}
-              title="Mirror your work into a folder you control (point it at a cloud-synced directory)"
-            >
-              {folderActive ? '🗀 folder linked — re-save' : '🗀 save to folder…'}
+              ⤓ download record
             </button>
           )}
           {[...snapshots].reverse().map((s) => (
