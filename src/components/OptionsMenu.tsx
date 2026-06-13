@@ -193,7 +193,7 @@ function OpenPanel({ onClose }: { onClose: () => void }) {
   return (
     <div className="mt-2">
       <label className="block border-2 border-dashed rounded-xl px-4 py-7 text-center cursor-pointer hover:bg-stone-50" style={{ borderColor: `${INK}55`, color: INK }}>
-        <input type="file" accept="application/json,.json" className="hidden" onChange={onFile} />
+        <input type="file" accept="application/json,.json,.trace.json,.insig.json" className="hidden" onChange={onFile} />
         Choose a file…
         <span className="block text-xs text-stone-400 mt-1">an Inkwave document or export bundle (.json)</span>
       </label>

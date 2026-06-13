@@ -10,7 +10,12 @@
 // enters the prerender/SSR graph.
 
 import type { InkwaveDocument, Snapshot } from '../types/document'
-import { buildExportBundle, bundleFilename, bundleReadme } from '../provenance/bundle'
+import { buildExportBundle, bundleFilename } from '../provenance/bundle'
+
+/** Where the synced file lives in the user's OneDrive (for display). */
+export function oneDrivePath(doc: InkwaveDocument): string {
+  return `Apps/Inkwave/${bundleFilename(doc)}`
+}
 
 // The Azure app (SPA) client id — PUBLIC (it appears in OAuth redirects), so it's committed as the
 // default and overridable via VITE_MS_CLIENT_ID. Redirect URIs registered: https://www.inkwave.studio
@@ -108,12 +113,12 @@ export async function syncToOneDrive(doc: InkwaveDocument, snapshots: Snapshot[]
   if (!CLIENT_ID) return false
   const token = await getSilentToken()
   if (!token) return false
+  // One self-contained file: the bundle holds content + snapshots + Bitcoin proofs + receipts, with
+  // the readable text header on top. (User-chosen folder selection — the OneDrive picker — is a
+  // planned follow-up; for now it lands in the app's OneDrive folder.)
   const bundle = buildExportBundle(doc, snapshots)
   try {
     await putFile(token, bundleFilename(doc), JSON.stringify(bundle, null, 2))
-    await putFile(token, `${doc.id}.current.json`, JSON.stringify(doc, null, 2))
-    await putFile(token, `${doc.id}.snapshots.json`, JSON.stringify(snapshots, null, 2))
-    await putFile(token, 'README.txt', bundleReadme(bundle.summary))
     return true
   } catch {
     return false

@@ -1,24 +1,20 @@
-// Writer-held folder storage (v4 spec §5/§11, M4). "The folder IS the login" for the free tiers:
-// the writer grants a directory once; we persist the handle and mirror their work into it
-// (current doc + snapshots + the self-verifying export bundle) so it lives in a place they control
-// (point it at any cloud-synced folder and their OS handles cross-device sync). Chromium-only;
-// other browsers fall back to OPFS + the manual export download.
-//
-// The granted handle is stored in IndexedDB (FileSystemDirectoryHandle is structured-cloneable).
-// On return we re-check permission (queryPermission/requestPermission).
+// Single-file local save (M4). The writer saves ONE self-contained <name>.trace.json (content +
+// snapshots + Bitcoin proofs + signed receipts, with the readable text header on top) to a name +
+// location THEY choose, via the File System Access "save file" picker. The handle is persisted so
+// subsequent auto-saves write back to the same file. Chromium only; other browsers fall back to a
+// download (and/or OneDrive).
 
 import type { InkwaveDocument, Snapshot } from '../types/document'
-import { buildExportBundle, bundleFilename, bundleReadme } from '../provenance/bundle'
+import { buildExportBundle, bundleFilename } from '../provenance/bundle'
 
-// Minimal IDB store for the single granted folder handle (separate from the doc-metadata DB).
 const DB_NAME = 'inkwave-folder'
 const STORE = 'handles'
-const KEY = 'granted'
+const KEY = 'savefile'
 
 function idb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1)
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE)
+    req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE) }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
   })
@@ -50,73 +46,58 @@ async function idbDel(key: string): Promise<void> {
   })
 }
 
-// FileSystemDirectoryHandle has permission methods not in the base TS lib types.
-type DirHandle = FileSystemDirectoryHandle & {
+type FileHandle = FileSystemFileHandle & {
   queryPermission?: (d: { mode: string }) => Promise<PermissionState>
   requestPermission?: (d: { mode: string }) => Promise<PermissionState>
 }
 
-/** Is the File System Access folder API available (Chromium)? */
-export function folderApiAvailable(): boolean {
-  return typeof window !== 'undefined' && 'showDirectoryPicker' in window
+/** Is the File System Access "save file" picker available (Chromium)? */
+export function fileSaveAvailable(): boolean {
+  return typeof window !== 'undefined' && 'showSaveFilePicker' in window
 }
 
-/** Prompt the writer to grant a folder (a user gesture), persist the handle, and return it. */
-export async function grantFolder(): Promise<FileSystemDirectoryHandle | null> {
-  if (!folderApiAvailable()) return null
+/** Prompt the writer to choose a name + location for their single .trace.json (a user gesture);
+ *  persist the handle and return it. */
+export async function pickSaveFile(doc: InkwaveDocument): Promise<FileSystemFileHandle | null> {
+  if (!fileSaveAvailable()) return null
   try {
     const handle = await (window as unknown as {
-      showDirectoryPicker: (o: { mode: string }) => Promise<FileSystemDirectoryHandle>
-    }).showDirectoryPicker({ mode: 'readwrite' })
+      showSaveFilePicker: (o: unknown) => Promise<FileSystemFileHandle>
+    }).showSaveFilePicker({ suggestedName: bundleFilename(doc) })
     await idbSet(KEY, handle)
     return handle
   } catch {
-    return null // user cancelled
+    return null // cancelled
   }
 }
 
-/** Return the previously-granted folder if permission is (re-)granted; else null. */
-export async function getGrantedFolder(interactive = false): Promise<FileSystemDirectoryHandle | null> {
-  if (!folderApiAvailable()) return null
-  const handle = await idbGet<DirHandle>(KEY)
+/** The previously-chosen save file if permission is (re-)granted; else null. */
+export async function getSaveFileHandle(interactive = false): Promise<FileHandle | null> {
+  if (!fileSaveAvailable()) return null
+  const handle = await idbGet<FileHandle>(KEY)
   if (!handle) return null
   try {
     const opts = { mode: 'readwrite' }
     if ((await handle.queryPermission?.(opts)) === 'granted') return handle
     if (interactive && (await handle.requestPermission?.(opts)) === 'granted') return handle
-  } catch { /* handle stale */ }
+  } catch { /* stale handle */ }
   return null
 }
 
-export async function forgetFolder(): Promise<void> {
+export async function forgetSaveFile(): Promise<void> {
   await idbDel(KEY)
 }
 
-async function writeFile(dir: FileSystemDirectoryHandle, name: string, data: string): Promise<void> {
-  const fh = await dir.getFileHandle(name, { create: true })
-  const w = await fh.createWritable()
-  await w.write(data)
-  await w.close()
-}
-
-/**
- * Mirror the document into the granted folder: the current content, the snapshots, and the
- * self-verifying export bundle (so the writer's own folder always holds a record they can hand to a
- * verifier). No-op if no folder is granted.
- */
-export async function mirrorDocument(doc: InkwaveDocument, snapshots: Snapshot[]): Promise<boolean> {
-  const folder = await getGrantedFolder()
-  if (!folder) return false
+/** Write the current bundle to the chosen file (silent — no prompt). Returns true on success. */
+export async function writeBundleToFile(doc: InkwaveDocument, snapshots: Snapshot[]): Promise<boolean> {
+  const handle = await getSaveFileHandle(false)
+  if (!handle) return false
   try {
-    const dir = await folder.getDirectoryHandle('inkwave', { create: true })
-    const bundle = buildExportBundle(doc, snapshots)
-    // Pretty-printed so the files are human-readable; the bundle leads with a `summary` block.
-    await writeFile(dir, `${doc.id}.current.json`, JSON.stringify(doc, null, 2))
-    await writeFile(dir, `${doc.id}.snapshots.json`, JSON.stringify(snapshots, null, 2))
-    await writeFile(dir, bundleFilename(doc), JSON.stringify(bundle, null, 2))
-    await writeFile(dir, 'README.txt', bundleReadme(bundle.summary))
+    const writable = await handle.createWritable()
+    await writable.write(JSON.stringify(buildExportBundle(doc, snapshots), null, 2))
+    await writable.close()
     return true
   } catch {
-    return false // permission lost / disk error — caller keeps OPFS as source of truth
+    return false
   }
 }

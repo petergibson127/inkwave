@@ -29,8 +29,8 @@ import { createSnapshotIfChanged, listSnapshots, stampSnapshot, drainUnstamped, 
 import { ReceiptPanel } from '../components/ReceiptPanel'
 import { SessionRunner } from '../provenance/session'
 import { buildExportBundle, bundleFilename, downloadBundle } from '../provenance/bundle'
-import { folderApiAvailable, grantFolder, getGrantedFolder, mirrorDocument } from '../storage/folder'
-import { oneDriveConfigured, oneDriveAccount, syncToOneDrive, startOneDriveSignIn, oneDriveSyncPending, clearOneDriveSyncPending } from '../storage/onedrive'
+import { fileSaveAvailable, pickSaveFile, getSaveFileHandle, writeBundleToFile } from '../storage/folder'
+import { oneDriveConfigured, oneDriveAccount, syncToOneDrive, startOneDriveSignIn, oneDriveSyncPending, clearOneDriveSyncPending, oneDrivePath } from '../storage/onedrive'
 import { SyncStatus } from '../components/SyncStatus'
 import { contentHash } from '../provenance/hash'
 import { verifyChain, signingPublicKeyHex } from '../provenance/receipts'
@@ -446,7 +446,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   // Primary "Save" — works on every browser. Chromium (Chrome/Edge/Brave) mirrors to a granted
   // folder via File System Access; Firefox/Safari (no folder API) download the record instead.
   function saveRecord() {
-    if (folderApiAvailable()) void saveToFolder()
+    if (fileSaveAvailable()) void saveToFile()
     else exportBundle()
   }
 
@@ -457,7 +457,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     if (!folderActiveRef.current && !oneDriveActiveRef.current) return
     const docId = docRef.current.id
     void listSnapshots(docId).then((snaps) => {
-      if (folderActiveRef.current) void mirrorDocument(docRef.current, snaps).catch(() => {})
+      if (folderActiveRef.current) void writeBundleToFile(docRef.current, snaps).catch(() => {})
       if (oneDriveActiveRef.current) void syncToOneDrive(docRef.current, snaps).then((ok) => { if (ok) setLastSync(Date.now()) }).catch(() => {})
     }).catch(() => {})
   }
@@ -490,26 +490,25 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     })
   }, [])
 
-  // "Save to folder" — grant a folder on first use, then mirror. The folder IS the login: point it
-  // at a cloud-synced directory and the OS handles cross-device sync. NOTE: showDirectoryPicker /
-  // requestPermission must run inside the click's user-gesture — so on first grant we call the
-  // picker FIRST (no await before it), and only re-permission a known folder (which usually needs
-  // no prompt in-session) otherwise. An await before the picker silently breaks the gesture.
-  async function saveToFolder() {
+  // "Save" — on first use, open the save-file picker so the writer names + places their single
+  // .trace.json; after that, write back to the same file. The picker must run inside the click's
+  // gesture, so on first save we call it FIRST (no await before it).
+  async function saveToFile() {
     if (!folderActiveRef.current) {
-      const granted = await grantFolder() // picker is the first call inside → in-gesture
-      if (!granted) return
+      const handle = await pickSaveFile(docRef.current) // picker is the first call inside → in-gesture
+      if (!handle) return
       folderActiveRef.current = true
     } else {
-      const ok = await getGrantedFolder(true)
+      const ok = await getSaveFileHandle(true)
       if (!ok) { folderActiveRef.current = false; return }
     }
-    mirrorIfActive()
+    const snaps = await listSnapshots(docRef.current.id)
+    await writeBundleToFile(docRef.current, snaps)
   }
 
-  // Reconnect to a previously-granted folder on load (no prompt if permission persists).
+  // Reconnect to a previously-chosen save file on load (no prompt if permission persists).
   useEffect(() => {
-    void getGrantedFolder().then((h) => { folderActiveRef.current = !!h })
+    void getSaveFileHandle().then((h) => { folderActiveRef.current = !!h })
   }, [])
 
   // Open a live-composition signing session when the document opens / switches. On success the
@@ -661,7 +660,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
           onVerifyChain={verifyReceiptChain}
         />
 
-        <SyncStatus account={oneDriveAcct} lastSync={lastSync} />
+        <SyncStatus account={oneDriveAcct} lastSync={lastSync} path={oneDriveAcct ? oneDrivePath(doc) : null} />
 
         {/* Footer bar. On a phone it docks flush to the bottom (the top of the Safari URL
             bar) with flat bottom corners; on desktop it floats as a rounded pill. */}
@@ -718,7 +717,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
                 paperRight={paperRight}
                 onExportBundle={exportBundle}
                 onSave={saveRecord}
-                folderAvailable={folderApiAvailable()}
+                folderAvailable={fileSaveAvailable()}
                 onSyncOneDrive={oneDriveConfigured() ? syncOneDrive : undefined}
                 oneDriveAccount={oneDriveAcct}
               />

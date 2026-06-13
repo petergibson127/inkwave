@@ -51,7 +51,7 @@ export function Verify() {
           className="block border-2 border-dashed rounded-xl px-4 py-8 text-center cursor-pointer hover:bg-stone-50"
           style={{ borderColor: `${INK}55` }}
         >
-          <input type="file" accept="application/json,.json" className="hidden" onChange={onFile} />
+          <input type="file" accept="application/json,.json,.trace.json,.insig.json" className="hidden" onChange={onFile} />
           <span style={{ color: INK }}>Choose an export bundle</span>
           <span className="block text-xs text-stone-400 mt-1">a .json file from the editor's “export bundle”</span>
         </label>

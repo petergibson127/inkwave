@@ -143,8 +143,12 @@ function slugOf(doc: InkwaveDocument): string {
   return (doc.title || 'untitled').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'untitled'
 }
 
+// Everything (content, snapshots, Bitcoin proofs, signed receipts, readable text header) lives in
+// ONE file. Free tier → `.trace.json`; the paid "Insignia" tier will use `.insig.json` (auth TBD).
+export const TRACE_EXTENSION = 'trace.json'
+
 export function bundleFilename(doc: InkwaveDocument): string {
-  return `inkwave-${slugOf(doc)}.json`
+  return `${slugOf(doc)}.${TRACE_EXTENSION}`
 }
 
 /** Trigger a download of the bundle as pretty-printed JSON (browser only). */
