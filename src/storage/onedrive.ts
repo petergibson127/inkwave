@@ -24,11 +24,27 @@ export function setChosenFolder(folder: OneDriveFolder | null): void {
   try { folder ? localStorage.setItem(FOLDER_KEY, JSON.stringify(folder)) : localStorage.removeItem(FOLDER_KEY) } catch { /* private mode */ }
 }
 
+// The OneDrive filename is PINNED per-document the first time we sync. The slug is derived from the
+// title, which is re-derived from the text on every edit — so without pinning, each sync would PUT a
+// different name and create a new file every few seconds instead of overwriting the same one.
+function stableFilename(doc: InkwaveDocument): string {
+  const key = `inkwave:onedrive-name:${doc.id}`
+  try {
+    const existing = localStorage.getItem(key)
+    if (existing) return existing
+    const name = bundleFilename(doc)
+    localStorage.setItem(key, name)
+    return name
+  } catch {
+    return bundleFilename(doc)
+  }
+}
+
 /** Where the synced file lives in the user's OneDrive (for display), honouring the chosen folder. */
 export function oneDrivePath(doc: InkwaveDocument): string {
   const folder = getChosenFolder()
   const prefix = folder?.path ? `${folder.path}/` : ''
-  return `${prefix}${bundleFilename(doc)}`
+  return `${prefix}${stableFilename(doc)}`
 }
 
 // The Azure app (SPA) client id — PUBLIC (it appears in OAuth redirects), so it's committed as the
@@ -130,6 +146,23 @@ async function putFile(token: string, name: string, content: string): Promise<st
 }
 
 export interface DriveFolder { id: string; name: string }
+
+// Common "quick access" destinations, resolved via Graph special folders (any that 404 are skipped).
+const QUICK_SPECIAL = ['documents', 'photos', 'music', 'cameraroll'] as const
+
+/** Resolve the writer's quick-access folders (Documents, Photos, …) for the top of the picker. */
+export async function listQuickFolders(): Promise<DriveFolder[]> {
+  const token = await getSilentToken()
+  if (!token) return []
+  const out: DriveFolder[] = []
+  for (const s of QUICK_SPECIAL) {
+    try {
+      const res = await fetch(`${GRAPH}/me/drive/special/${s}?$select=id,name`, { headers: { Authorization: `Bearer ${token}` } })
+      if (res.ok) { const d = (await res.json()) as { id: string; name: string }; out.push({ id: d.id, name: d.name }) }
+    } catch { /* skip */ }
+  }
+  return out
+}
 
 /** List the sub-folders of a folder (null/'' = OneDrive root) for the folder picker. */
 export async function listFolders(parentId: string | null): Promise<DriveFolder[]> {

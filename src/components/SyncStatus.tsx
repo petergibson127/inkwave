@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 
-// Bottom-right OneDrive indicator: a compact pill that, on hover/tap, opens a small panel ABOVE it
-// (so it never grows leftward into the text). The panel shows the file path (in a fixed-width box
-// that wraps), when it last synced, a "copy path" button, and "open in OneDrive". Hidden until
-// connected; re-renders on a timer so the relative time stays fresh.
+// Bottom-right sync indicator: a compact pill that, on hover/tap, opens a small panel ABOVE it (so
+// it never grows leftward into the text). The pill text is decided by the caller so it reads clearly
+// in every state — "Synced to folder", "OneDrive — not yet syncing", "OneDrive disconnected". When
+// not synced the pill is actionable (onClick connects / retries). Works for a local folder (Chromium)
+// or OneDrive (Firefox/Safari). Re-renders on a timer so the relative time stays fresh.
 const INK = '#5c2d8a'
 
 function relativeTime(t: number): string {
@@ -17,13 +18,15 @@ function relativeTime(t: number): string {
 }
 
 export function SyncStatus({
-  account, lastSync, path, webUrl, onChangeFolder,
+  label, synced, path, lastSync, tooltip, onChangeFolder, onClick,
 }: {
-  account: string | null
-  lastSync: number | null
+  label: string
+  synced: boolean
   path?: string | null
-  webUrl?: string | null
+  lastSync?: number | null
+  tooltip?: string
   onChangeFolder?: () => void
+  onClick?: () => void // pill action when not synced (connect / sync now)
 }) {
   const [, tick] = useState(0)
   const [open, setOpen] = useState(false)
@@ -31,12 +34,9 @@ export function SyncStatus({
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    if (!account) return
     const id = setInterval(() => tick((n) => n + 1), 5000)
     return () => clearInterval(id)
-  }, [account])
-
-  if (!account) return null
+  }, [])
 
   function copyPath() {
     if (!path) return
@@ -50,12 +50,11 @@ export function SyncStatus({
       onMouseLeave={() => { closeTimer.current = setTimeout(() => setOpen(false), 150) }}
     >
       {/* Detail panel — opens UPWARD, fixed width, path wraps inside it. */}
-      {open && lastSync && (
-        <div
-          className="mb-2 w-64 bg-white shadow-lg rounded-xl p-3 text-stone-600"
-          style={{ border: `1px solid ${INK}40` }}
-        >
-          <div className="text-xs text-stone-400 mb-1.5">synced {relativeTime(lastSync)}</div>
+      {open && (
+        <div className="mb-2 w-64 bg-white shadow-lg rounded-xl p-3 text-stone-600" style={{ border: `1px solid ${INK}40` }}>
+          <div className="text-xs text-stone-400 mb-1.5">
+            {synced && lastSync ? `synced ${relativeTime(lastSync)}` : 'not syncing yet — your work is still saved on this device'}
+          </div>
           {path && (
             <div className="text-xs text-stone-600 bg-stone-50 rounded-lg px-2 py-1.5 mb-2 break-words" style={{ wordBreak: 'break-word' }}>
               {path}
@@ -67,28 +66,29 @@ export function SyncStatus({
                 {copied ? '✓ copied' : 'Copy path'}
               </button>
             )}
-            {webUrl && (
-              <a href={webUrl} target="_blank" rel="noreferrer" className="underline hover:text-[#5c2d8a]" style={{ color: INK }}>
-                Open in OneDrive ↗
-              </a>
-            )}
             {onChangeFolder && (
               <button type="button" onClick={onChangeFolder} className="underline hover:text-[#5c2d8a]" style={{ color: INK }}>
                 Change folder
+              </button>
+            )}
+            {!synced && onClick && (
+              <button type="button" onClick={onClick} className="underline hover:text-[#5c2d8a]" style={{ color: INK }}>
+                Sync now
               </button>
             )}
           </div>
         </div>
       )}
 
-      {/* Compact pill (always right-anchored — never overlaps the centered text). */}
+      {/* Compact pill — right-anchored (never overlaps the centered text). */}
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
-        title={`OneDrive: ${account}`}
-        className="text-sm text-stone-500 cursor-pointer rounded-full px-2.5 py-0.5 bg-white/70 hover:text-[#5c2d8a] hover:bg-white transition-colors"
+        onClick={() => (onClick && !synced ? onClick() : setOpen((o) => !o))}
+        title={tooltip}
+        className="text-sm cursor-pointer rounded-full px-2.5 py-0.5 bg-white/70 hover:bg-white transition-colors"
+        style={{ color: synced ? '#6b7280' : '#b45309' }}
       >
-        {lastSync ? '☁ Synced to OneDrive' : '☁ OneDrive connected'}
+        {label}
       </button>
     </div>
   )

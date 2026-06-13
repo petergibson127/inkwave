@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { listFolders, type DriveFolder, type OneDriveFolder } from '../storage/onedrive'
+import { listFolders, listQuickFolders, type DriveFolder, type OneDriveFolder } from '../storage/onedrive'
 
 // A small folder browser for OneDrive: drill into folders from the root, then "Sync here" to choose
 // the destination for the .trace.json. Reads folders live via Microsoft Graph (the writer must be
@@ -12,10 +12,14 @@ type Crumb = { id: string; name: string }
 export function OneDriveFolderPicker({ onPick, onClose }: { onPick: (folder: OneDriveFolder) => void; onClose: () => void }) {
   const [crumbs, setCrumbs] = useState<Crumb[]>([]) // [] = root
   const [folders, setFolders] = useState<DriveFolder[] | null>(null)
+  const [quick, setQuick] = useState<DriveFolder[]>([])
   const [error, setError] = useState<string | null>(null)
 
   const currentId = crumbs.length ? crumbs[crumbs.length - 1].id : null
   const currentPath = crumbs.map((c) => c.name).join('/')
+
+  // Quick-access folders (Documents, Photos, …) — fetched once, shown at the root.
+  useEffect(() => { void listQuickFolders().then(setQuick).catch(() => {}) }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -52,6 +56,21 @@ export function OneDriveFolderPicker({ onPick, onClose }: { onPick: (folder: One
             </span>
           ))}
         </div>
+
+        {/* Quick access — only at the root, to jump straight to common folders. */}
+        {crumbs.length === 0 && quick.length > 0 && (
+          <div className="mb-2">
+            <div className="text-[11px] uppercase tracking-wide text-stone-400 mb-1">Quick access</div>
+            <div className="flex flex-wrap gap-1.5">
+              {quick.map((f) => (
+                <button key={f.id} type="button" onClick={() => setCrumbs([{ id: f.id, name: f.name }])}
+                  className="text-xs px-2.5 py-1 rounded-full font-serif hover:bg-stone-50" style={{ border: `1px solid ${INK}40`, color: INK }}>
+                  🗁 {f.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="border rounded-lg max-h-64 overflow-auto" style={{ borderColor: '#eee' }}>
           {error && <p className="text-xs text-red-700 p-3">⚠ {error}</p>}

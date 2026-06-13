@@ -49,7 +49,9 @@ export function OptionsMenu({
   paperRight,
   onExportBundle,
   onSave,
+  onSaveAs,
   folderAvailable,
+  folderName,
   onSyncOneDrive,
   onChooseOneDriveFolder,
   oneDriveAccount,
@@ -57,7 +59,9 @@ export function OptionsMenu({
   paperRight: number
   onExportBundle?: () => void
   onSave?: () => void
+  onSaveAs?: () => void
   folderAvailable?: boolean
+  folderName?: string | null
   onSyncOneDrive?: () => void
   onChooseOneDriveFolder?: () => void
   oneDriveAccount?: string | null
@@ -142,7 +146,7 @@ export function OptionsMenu({
 
       {modal && (
         <Modal title={MODAL_TITLES[modal]} onClose={() => setModal(null)}>
-          {modal === 'save' && <SavePanel onExportBundle={onExportBundle} onSave={onSave} folderAvailable={folderAvailable} onSyncOneDrive={onSyncOneDrive} onChooseOneDriveFolder={onChooseOneDriveFolder} oneDriveAccount={oneDriveAccount} onDone={() => setModal(null)} />}
+          {modal === 'save' && <SavePanel onExportBundle={onExportBundle} onSave={onSave} onSaveAs={onSaveAs} folderAvailable={folderAvailable} folderName={folderName} onSyncOneDrive={onSyncOneDrive} onChooseOneDriveFolder={onChooseOneDriveFolder} oneDriveAccount={oneDriveAccount} onDone={() => setModal(null)} />}
           {modal === 'recent' && <RecentPanel />}
         </Modal>
       )}
@@ -165,30 +169,35 @@ function MenuButton({ onClick, children }: { onClick?: () => void; children: Rea
   )
 }
 
-function SavePanel({ onExportBundle, onSave, folderAvailable, onSyncOneDrive, onChooseOneDriveFolder, oneDriveAccount, onDone }: {
-  onExportBundle?: () => void; onSave?: () => void; folderAvailable?: boolean
+function SavePanel({ onExportBundle, onSave, onSaveAs, folderAvailable, folderName, onSyncOneDrive, onChooseOneDriveFolder, oneDriveAccount, onDone }: {
+  onExportBundle?: () => void; onSave?: () => void; onSaveAs?: () => void; folderAvailable?: boolean; folderName?: string | null
   onSyncOneDrive?: () => void; onChooseOneDriveFolder?: () => void; oneDriveAccount?: string | null; onDone: () => void
 }) {
   return (
     <div className="flex flex-col gap-2.5 mt-2">
-      {/* "Save to a file" only on Chromium (File System Access); Firefox/Safari use OneDrive or download. */}
+      {/* Chromium (File System Access): native "Save to a folder"; once linked it shows the file name. */}
       {folderAvailable && (
         <MenuButton onClick={onSave ? () => { onSave(); onDone() } : undefined}>
-          🗀 Save to a file
-          <span className="block text-xs text-stone-400">choose a name + place once; it saves there as you write</span>
-        </MenuButton>
-      )}
-      {onSyncOneDrive && (
-        <MenuButton onClick={() => { onSyncOneDrive(); onDone() }}>
-          {oneDriveAccount ? '☁ Re-sync to OneDrive' : '☁ Sync to OneDrive'}
+          {folderName ? `✓ Synced to ${folderName}` : '🗀 Save to a folder'}
           <span className="block text-xs text-stone-400">
-            {oneDriveAccount ? `signed in as ${oneDriveAccount} · syncs as you write` : 'sign in with Microsoft — works on any browser, incl. Firefox & Safari'}
+            {folderName ? 'updates here automatically as you write' : 'choose where to save it; it updates there as you write'}
           </span>
         </MenuButton>
       )}
-      {onSyncOneDrive && oneDriveAccount && onChooseOneDriveFolder && (
+      {folderAvailable && onSaveAs && (
+        <MenuButton onClick={() => { onSaveAs(); onDone() }}>
+          🗋 Save a copy…<span className="block text-xs text-stone-400">save to a new file, then keep that one updated</span>
+        </MenuButton>
+      )}
+      {/* OneDrive only on browsers that need it (Firefox/Safari — no File System Access). */}
+      {!folderAvailable && onSyncOneDrive && !oneDriveAccount && (
+        <MenuButton onClick={() => { onSyncOneDrive(); onDone() }}>
+          ☁ Sync to OneDrive<span className="block text-xs text-stone-400">sign in with Microsoft — works in Firefox &amp; Safari</span>
+        </MenuButton>
+      )}
+      {!folderAvailable && oneDriveAccount && onChooseOneDriveFolder && (
         <MenuButton onClick={() => { onChooseOneDriveFolder(); onDone() }}>
-          🗁 Choose OneDrive folder<span className="block text-xs text-stone-400">pick where in your OneDrive the file is saved</span>
+          🗁 Choose OneDrive folder<span className="block text-xs text-stone-400">signed in as {oneDriveAccount} · syncs as you write</span>
         </MenuButton>
       )}
       <MenuButton onClick={onExportBundle ? () => { onExportBundle(); onDone() } : undefined}>

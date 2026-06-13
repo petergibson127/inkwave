@@ -86,8 +86,9 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   const [oneDriveAcct, setOneDriveAcct] = useState<string | null>(null)
   const oneDriveActiveRef = useRef(false)
   const [lastSync, setLastSync] = useState<number | null>(null) // ms epoch of last successful OneDrive sync
-  const [oneDriveUrl, setOneDriveUrl] = useState<string | null>(null) // webUrl of the synced file (open-in-OneDrive)
   const [folderPickerOpen, setFolderPickerOpen] = useState(false)
+  const [fileName, setFileName] = useState<string | null>(null) // linked local save file name (Chromium)
+  const [lastFileSave, setLastFileSave] = useState<number | null>(null)
 
   const [currentParagraphIndex, setCurrentParagraphIndex] = useState(0)
   const [showHints, setShowHints] = useState(true)
@@ -460,8 +461,8 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     if (!folderActiveRef.current && !oneDriveActiveRef.current) return
     const docId = docRef.current.id
     void listSnapshots(docId).then((snaps) => {
-      if (folderActiveRef.current) void writeBundleToFile(docRef.current, snaps).catch(() => {})
-      if (oneDriveActiveRef.current) void syncToOneDrive(docRef.current, snaps).then((r) => { if (r.ok) { setLastSync(Date.now()); setOneDriveUrl(r.webUrl) } }).catch(() => {})
+      if (folderActiveRef.current) void writeBundleToFile(docRef.current, snaps).then((ok) => { if (ok) setLastFileSave(Date.now()) }).catch(() => {})
+      if (oneDriveActiveRef.current) void syncToOneDrive(docRef.current, snaps).then((r) => { if (r.ok) setLastSync(Date.now()) }).catch(() => {})
     }).catch(() => {})
   }
 
@@ -476,7 +477,6 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
       oneDriveActiveRef.current = true
       setOneDriveAcct(acct)
       setLastSync(Date.now())
-      setOneDriveUrl(r.webUrl)
     } else {
       // Signed in but the token/scope isn't valid (e.g. the new Files.ReadWrite consent) → re-consent.
       await startOneDriveSignIn()
@@ -506,7 +506,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
         clearOneDriveSyncPending()
         void listSnapshots(docRef.current.id)
           .then((s) => syncToOneDrive(docRef.current, s))
-          .then((r) => { if (r.ok) { setLastSync(Date.now()); setOneDriveUrl(r.webUrl) } })
+          .then((r) => { if (r.ok) setLastSync(Date.now()) })
       }
     })
   }, [])
@@ -519,17 +519,31 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
       const handle = await pickSaveFile(docRef.current) // picker is the first call inside → in-gesture
       if (!handle) return
       folderActiveRef.current = true
+      setFileName(handle.name)
     } else {
-      const ok = await getSaveFileHandle(true)
-      if (!ok) { folderActiveRef.current = false; return }
+      const handle = await getSaveFileHandle(true)
+      if (!handle) { folderActiveRef.current = false; setFileName(null); return }
+      setFileName(handle.name)
     }
     const snaps = await listSnapshots(docRef.current.id)
     await writeBundleToFile(docRef.current, snaps)
+    setLastFileSave(Date.now())
+  }
+
+  // "Save a copy" — always prompt for a NEW file, then keep that one updated as you write.
+  async function saveAsFile() {
+    const handle = await pickSaveFile(docRef.current)
+    if (!handle) return
+    folderActiveRef.current = true
+    setFileName(handle.name)
+    const snaps = await listSnapshots(docRef.current.id)
+    await writeBundleToFile(docRef.current, snaps)
+    setLastFileSave(Date.now())
   }
 
   // Reconnect to a previously-chosen save file on load (no prompt if permission persists).
   useEffect(() => {
-    void getSaveFileHandle().then((h) => { folderActiveRef.current = !!h })
+    void getSaveFileHandle().then((h) => { folderActiveRef.current = !!h; if (h) setFileName(h.name) })
   }, [])
 
   // Open a live-composition signing session when the document opens / switches. On success the
@@ -681,13 +695,37 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
           onVerifyChain={verifyReceiptChain}
         />
 
-        <SyncStatus
-          account={oneDriveAcct}
-          lastSync={lastSync}
-          path={oneDriveAcct ? oneDrivePath(doc) : null}
-          webUrl={oneDriveUrl}
-          onChangeFolder={chooseOneDriveFolder}
-        />
+        {/* One sync indicator. Regular browser (File System Access) → local folder only; Firefox/
+            Safari → OneDrive. The label reads clearly in every state. */}
+        {(() => {
+          if (fileSaveAvailable()) {
+            if (!fileName) return null // nothing to show until they save to a folder
+            return (
+              <SyncStatus
+                label={lastFileSave ? '✓ Synced to folder' : '🗀 Folder — not saved yet'}
+                synced={!!lastFileSave}
+                path={fileName}
+                lastSync={lastFileSave}
+                tooltip={`Saving to ${fileName}`}
+                onChangeFolder={saveAsFile}
+              />
+            )
+          }
+          if (!oneDriveConfigured()) return null
+          return oneDriveAcct ? (
+            <SyncStatus
+              label={lastSync ? '✓ Synced to folder' : '☁ OneDrive — not yet syncing'}
+              synced={!!lastSync}
+              path={oneDrivePath(doc)}
+              lastSync={lastSync}
+              tooltip={`OneDrive: ${oneDriveAcct}`}
+              onChangeFolder={chooseOneDriveFolder}
+              onClick={lastSync ? undefined : syncOneDrive}
+            />
+          ) : (
+            <SyncStatus label="☁ OneDrive disconnected" synced={false} onClick={syncOneDrive} />
+          )
+        })()}
 
         {folderPickerOpen && (
           <OneDriveFolderPicker onPick={onFolderPicked} onClose={() => setFolderPickerOpen(false)} />
@@ -748,7 +786,9 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
                 paperRight={paperRight}
                 onExportBundle={exportBundle}
                 onSave={saveRecord}
+                onSaveAs={fileSaveAvailable() ? saveAsFile : undefined}
                 folderAvailable={fileSaveAvailable()}
+                folderName={fileName}
                 onSyncOneDrive={oneDriveConfigured() ? syncOneDrive : undefined}
                 onChooseOneDriveFolder={chooseOneDriveFolder}
                 oneDriveAccount={oneDriveAcct}
