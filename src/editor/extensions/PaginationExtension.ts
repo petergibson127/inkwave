@@ -41,43 +41,64 @@ function numEl(pageNum: number): HTMLElement {
   return el
 }
 
-function compute(view: EditorView, pageH: number): { set: DecorationSet; sig: string } {
+// Collect every LINE in the document as { intrinsic top, doc position of its start } — so a page
+// break can land mid-paragraph (the gap widget at a line-start splits the paragraph in two). Tops
+// are intrinsic (our own gap-widget heights subtracted) so adding gaps doesn't move the measurement.
+function collectLines(view: EditorView, editorTop: number, childPos: number[]): Array<{ top: number; pos: number }> {
   const dom = view.dom as HTMLElement
-  const editorTop = dom.getBoundingClientRect().top
-  // Intrinsic block tops: subtract the heights of our own gap widgets above each block.
+  const lines: Array<{ top: number; pos: number }> = []
   let accum = 0
-  const tops: number[] = []
-  const heights: number[] = []
+  let childIdx = 0
   for (const child of Array.from(dom.children) as HTMLElement[]) {
     if (child.classList.contains('inkwave-page-gap')) { accum += child.getBoundingClientRect().height; continue }
-    const r = child.getBoundingClientRect()
-    tops.push(r.top - editorTop - accum)
-    heights.push(r.height)
+    const startPos = childPos[childIdx] ?? 0
+    childIdx++
+    let rects: DOMRect[] = []
+    try { const range = document.createRange(); range.selectNodeContents(child); rects = Array.from(range.getClientRects()) } catch { /* ignore */ }
+    if (!rects.length) { // empty block (e.g. a blank paragraph) → one line at the block top
+      lines.push({ top: child.getBoundingClientRect().top - editorTop - accum, pos: startPos })
+      continue
+    }
+    let lastTop = -1e9
+    for (const r of rects) {
+      if (r.width < 1 || r.height < 1 || r.top - lastTop <= 3) continue // dedup inline-span rects on the same line
+      lastTop = r.top
+      const at = view.posAtCoords({ left: r.left + 1, top: r.top + r.height / 2 })?.pos
+      lines.push({ top: r.top - editorTop - accum, pos: at != null && at > 0 ? at : startPos })
+    }
   }
-  const n = tops.length
-  if (!n || pageH <= 0) return { set: DecorationSet.empty, sig: 'empty' }
+  lines.sort((a, b) => a.top - b.top)
+  return lines
+}
 
+function compute(view: EditorView, pageH: number): { set: DecorationSet; sig: string } {
+  if (pageH <= 0) return { set: DecorationSet.empty, sig: 'empty' }
+  const editorTop = (view.dom as HTMLElement).getBoundingClientRect().top
   const doc = view.state.doc
   const childPos: number[] = []
   let pos = 0
   for (let i = 0; i < doc.childCount; i++) { childPos.push(pos); pos += doc.child(i).nodeSize }
 
+  const lines = collectLines(view, editorTop, childPos)
+  if (!lines.length) return { set: DecorationSet.empty, sig: 'empty' }
+
   const decos: Decoration[] = []
   const sig: string[] = []
   let used = 0
   let pageNo = 1
-  for (let i = 0; i < n; i++) {
-    const occ = i < n - 1 ? tops[i + 1] - tops[i] : heights[i] // flow occupancy (incl. margin)
-    if (i > 0 && used + occ > pageH && childPos[i] != null) {
-      const gh = Math.max(GAP, pageH - used) + GAP // parchment fill to A4 bottom + the aqua gap
-      const at = childPos[i]
+  for (let i = 0; i < lines.length; i++) {
+    const lh = i < lines.length - 1 ? Math.max(1, lines[i + 1].top - lines[i].top) : 24
+    // Break before the LINE that would overflow the page — splitting the paragraph if mid-block.
+    if (i > 0 && used + lh > pageH && lines[i].pos > 0) {
+      const gh = Math.max(GAP, pageH - used) + GAP
+      const at = lines[i].pos
       const num = pageNo
-      decos.push(Decoration.widget(at, () => gapEl(gh, num), { side: -1, key: `gap-${num}` }))
+      decos.push(Decoration.widget(at, () => gapEl(gh, num), { side: -1, key: `gap-${num}-${at}` }))
       sig.push(`${at}:${Math.round(gh)}:${num}`)
       pageNo++
       used = 0
     }
-    used += occ
+    used += lh
   }
   decos.push(Decoration.widget(doc.content.size, () => numEl(pageNo), { side: 1, key: `num-${pageNo}` }))
   sig.push(`end:${pageNo}`)
