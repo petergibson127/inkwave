@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useZoomScale } from '../editor/useZoomScale'
 
 // Bottom-right sync indicator: a compact pill that, on hover/tap, opens a small panel ABOVE it (so
 // it never grows leftward into the text). The pill text is decided by the caller so it reads clearly
@@ -18,7 +19,7 @@ function relativeTime(t: number): string {
 }
 
 export function SyncStatus({
-  label, synced, path, lastSync, tooltip, webUrl, onChangeFolder, onClick,
+  label, synced, path, lastSync, tooltip, webUrl, onShowInFolder, onChangeFolder, onClick,
 }: {
   label: string
   synced: boolean
@@ -26,11 +27,13 @@ export function SyncStatus({
   lastSync?: number | null
   tooltip?: string
   webUrl?: string | null // when present, "Open in folder" opens it (the file in OneDrive)
+  onShowInFolder?: () => void // local folder: reveal the file's folder (native picker startIn)
   onChangeFolder?: () => void
   onClick?: () => void // pill action when not synced (connect / sync now)
 }) {
   const [, tick] = useState(0)
   const [open, setOpen] = useState(false)
+  const zoom = useZoomScale()
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -40,7 +43,8 @@ export function SyncStatus({
 
   return (
     <div
-      className="fixed bottom-4 right-4 z-40 font-serif select-none flex flex-col items-end"
+      className="fixed bottom-0 right-0 z-40 font-serif select-none flex flex-col items-end"
+      style={{ padding: '1rem', transform: zoom !== 1 ? `scale(${zoom})` : undefined, transformOrigin: 'bottom right' }}
       onMouseEnter={() => { if (closeTimer.current) clearTimeout(closeTimer.current); setOpen(true) }}
       onMouseLeave={() => { closeTimer.current = setTimeout(() => setOpen(false), 150) }}
     >
@@ -60,6 +64,11 @@ export function SyncStatus({
               <a href={webUrl} target="_blank" rel="noreferrer" className="underline hover:text-[#5c2d8a]" style={{ color: INK }}>
                 Open in folder ↗
               </a>
+            )}
+            {onShowInFolder && (
+              <button type="button" onClick={onShowInFolder} className="underline hover:text-[#5c2d8a]" style={{ color: INK }}>
+                Show in folder
+              </button>
             )}
             {onChangeFolder && (
               <button type="button" onClick={onChangeFolder} className="underline hover:text-[#5c2d8a]" style={{ color: INK }}>

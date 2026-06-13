@@ -33,6 +33,7 @@ import { fileSaveAvailable, pickSaveFile, getSaveFileHandle, writeBundleToFile }
 import { oneDriveConfigured, oneDriveAccount, syncToOneDrive, startOneDriveSignIn, oneDriveSyncPending, clearOneDriveSyncPending, oneDrivePath, setChosenFolder, addRecentFolder, oneDriveFilename, setOneDriveFilename, type OneDriveFolder } from '../storage/onedrive'
 import { SyncStatus } from '../components/SyncStatus'
 import { OneDriveFolderPicker } from '../components/OneDriveFolderPicker'
+import { useZoomScale } from './useZoomScale'
 import { contentHash } from '../provenance/hash'
 import { verifyChain, signingPublicKeyHex } from '../provenance/receipts'
 import type { Snapshot, SignedReceipt, KickEvent } from '../types/document'
@@ -95,6 +96,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   const [fileName, setFileName] = useState<string | null>(null) // linked local save file name (Chromium)
   const [lastFileSave, setLastFileSave] = useState<number | null>(null)
   const [oneDriveUrl, setOneDriveUrl] = useState<string | null>(null) // synced file's webUrl (open in folder)
+  const zoom = useZoomScale() // counter page zoom so the toolbar stays a constant size
 
   const [currentParagraphIndex, setCurrentParagraphIndex] = useState(0)
   const [showHints, setShowHints] = useState(true)
@@ -567,6 +569,18 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     setLastFileSave(Date.now())
   }
 
+  // "Show in folder" — open a native picker started IN the saved file's folder, so the writer can
+  // see where it lives (the File System Access API has no direct "reveal in Explorer"). Cancelling
+  // is fine — they've seen the folder.
+  async function showInFolder() {
+    const handle = await getSaveFileHandle(false)
+    if (!handle) return
+    try {
+      await (window as unknown as { showOpenFilePicker: (o: unknown) => Promise<unknown> })
+        .showOpenFilePicker({ startIn: handle, multiple: false })
+    } catch { /* cancelled — the folder was shown */ }
+  }
+
   // "Save a copy" — always prompt for a NEW file, then keep that one updated as you write.
   async function saveAsFile() {
     const handle = await pickSaveFile(docRef.current)
@@ -744,6 +758,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
                 path={fileName}
                 lastSync={lastFileSave}
                 tooltip={`Saving to ${fileName}`}
+                onShowInFolder={showInFolder}
                 onChangeFolder={saveAsFile}
               />
             ) : (
@@ -775,7 +790,13 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
             bar) with flat bottom corners; on desktop it floats as a rounded pill. */}
         <div
           className="fixed bottom-0 left-0 right-0 flex justify-center pointer-events-none"
-          style={{ paddingBottom: isTouch ? 'env(safe-area-inset-bottom)' : '1rem' }}
+          style={{
+            paddingBottom: isTouch ? 'env(safe-area-inset-bottom)' : '1rem',
+            // Scale the WHOLE bottom bar from its bottom edge so the pill AND its gap stay constant
+            // under zoom (no vertical drift). Desktop only; no transform at 100%.
+            transform: !isTouch && zoom !== 1 ? `scale(${zoom})` : undefined,
+            transformOrigin: 'bottom center',
+          }}
         >
           <div
             ref={footerRef}

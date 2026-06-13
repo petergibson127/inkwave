@@ -57,13 +57,13 @@
   }
   .inkwave-editor-surface.is-phone::before { display: none; }
 
-  /* Parchment paper texture for the scroll body (the page the text sits on) */
+  /* Parchment paper texture for the scroll body (the page the text sits on). UNIFORM colour: the
+     base + a tiled (400×400, repeating) noise texture. The old full-height linear-gradients made the
+     tint vary top→bottom, which read as the paper "changing colour" as you scrolled a long document. */
   .scroll-paper {
     background-color: #f7f2e8;
     background-image:
-      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='400' height='400' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E"),
-      linear-gradient(160deg, rgba(255,248,230,0.6) 0%, transparent 50%),
-      linear-gradient(to bottom, rgba(210,190,150,0.12) 0%, transparent 30%, rgba(180,160,120,0.08) 100%);
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='400' height='400' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E");
   }
 
   /* Tiptap editor content styles */
