@@ -10,7 +10,7 @@ import { POOL_ID } from '../scas/pool'
 // A clean, readable plain-text copy of the document — block nodes (paragraphs/headings/list items)
 // separated by blank lines, hard breaks as newlines. Sits near the top of the bundle so the writing
 // is legible to a human opening the file, with no markdown syntax to parse.
-function pmToText(doc: TiptapJSON): string {
+export function pmToText(doc: TiptapJSON): string {
   const blocks: string[] = []
   const inline = (node: { type?: string; text?: string; content?: unknown[] }): string => {
     if (node.type === 'text') return node.text ?? ''

@@ -75,16 +75,22 @@ export function ReceiptPanel({
               </button>
             )}
             {[...snapshots].reverse().map((s) => (
-              <div key={s.id} className="px-2.5 py-1.5 flex items-baseline gap-1.5"
-                   style={{ borderBottom: '1px solid rgba(92, 45, 138, 0.12)' }}>
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => window.open(`/snapshot?doc=${encodeURIComponent(s.documentId)}&snap=${encodeURIComponent(s.id)}`, '_blank', 'noopener')}
+                className="w-full px-2.5 py-1.5 flex items-baseline gap-1.5 text-left hover:bg-stone-50"
+                style={{ borderBottom: '1px solid rgba(92, 45, 138, 0.12)' }}
+                title="Open this version (read-only) — and see what changed since"
+              >
                 <span className="tabular-nums" style={{ color: '#9b5ccc' }}>
                   {new Date(s.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
                 <span className="text-stone-500">{s.wordCount}w</span>
                 <span className="ml-auto text-stone-400" title={`bundle ${s.bundleHash}`}>
-                  {s.ots.status === 'confirmed' ? '⛓' : s.ots.status === 'pending' ? '⏳' : '·'}
+                  {s.ots.status === 'confirmed' ? '⛓' : s.ots.status === 'pending' ? '⏳' : '·'} ↗
                 </span>
-              </div>
+              </button>
             ))}
           </div>
         )}

@@ -85,6 +85,11 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   // OneDrive sync (Microsoft Graph) — cross-browser cloud storage for non-Chromium writers.
   const [oneDriveAcct, setOneDriveAcct] = useState<string | null>(null)
   const oneDriveActiveRef = useRef(false)
+  // OneDrive write throttle: rapid PUTs to the same file race the OneDrive DESKTOP client (which
+  // then makes "<name>-MACHINE.json" conflict copies). Local folder writes are instant; OneDrive is
+  // throttled to one write per interval with a trailing flush.
+  const oneDriveLastWriteRef = useRef(0)
+  const oneDriveTrailingRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [lastSync, setLastSync] = useState<number | null>(null) // ms epoch of last successful OneDrive sync
   const [folderPickerOpen, setFolderPickerOpen] = useState(false)
   const [fileName, setFileName] = useState<string | null>(null) // linked local save file name (Chromium)
@@ -458,12 +463,30 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   // (any browser). No-op if neither is active. OneDrive auto-sync is silent (no popup); if the
   // token has expired it simply skips until the next explicit sync.
   function mirrorIfActive() {
-    if (!folderActiveRef.current && !oneDriveActiveRef.current) return
-    const docId = docRef.current.id
-    void listSnapshots(docId).then((snaps) => {
-      if (folderActiveRef.current) void writeBundleToFile(docRef.current, snaps).then((ok) => { if (ok) setLastFileSave(Date.now()) }).catch(() => {})
-      if (oneDriveActiveRef.current) void syncToOneDrive(docRef.current, snaps).then((r) => { if (r.ok) setLastSync(Date.now()) }).catch(() => {})
-    }).catch(() => {})
+    if (folderActiveRef.current) {
+      void listSnapshots(docRef.current.id)
+        .then((snaps) => writeBundleToFile(docRef.current, snaps))
+        .then((ok) => { if (ok) setLastFileSave(Date.now()) })
+        .catch(() => {})
+    }
+    if (oneDriveActiveRef.current) scheduleOneDriveSync()
+  }
+
+  // Throttled OneDrive write: at most one PUT per interval, with a trailing flush so the final state
+  // always lands. Fewer writes ⇒ fewer races with the OneDrive desktop client ⇒ no machine-name copies.
+  const ONEDRIVE_MIN_INTERVAL = 20_000
+  function oneDriveWriteNow() {
+    oneDriveLastWriteRef.current = Date.now()
+    void listSnapshots(docRef.current.id)
+      .then((snaps) => syncToOneDrive(docRef.current, snaps))
+      .then((r) => { if (r.ok) setLastSync(Date.now()) })
+      .catch(() => {})
+  }
+  function scheduleOneDriveSync() {
+    if (oneDriveTrailingRef.current) clearTimeout(oneDriveTrailingRef.current)
+    const since = Date.now() - oneDriveLastWriteRef.current
+    if (since >= ONEDRIVE_MIN_INTERVAL) oneDriveWriteNow()
+    else oneDriveTrailingRef.current = setTimeout(oneDriveWriteNow, ONEDRIVE_MIN_INTERVAL - since)
   }
 
   // "Sync to OneDrive". If signed in → sync silently now. If not → start the same-window sign-in
@@ -477,6 +500,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
       oneDriveActiveRef.current = true
       setOneDriveAcct(acct)
       setLastSync(Date.now())
+      oneDriveLastWriteRef.current = Date.now()
     } else {
       // Signed in but the token/scope isn't valid (e.g. the new Files.ReadWrite consent) → re-consent.
       await startOneDriveSignIn()
