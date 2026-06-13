@@ -12,6 +12,7 @@ import { listMeta, upsertMeta } from '../storage/indexeddb'
 import { saveDocument, emptyTiptapDoc } from '../storage/opfs'
 import { withScasDefaults } from '../scas/state'
 import { openInkwaveFile } from '../storage/openDoc'
+import { gappedPagesEnabled, setGappedPages } from '../editor/pageView'
 
 const ACTIVE_DOC_KEY = 'inkwave:activeDocumentId'
 const INK = '#5c2d8a'
@@ -109,6 +110,7 @@ export function OptionsMenu({
     { label: 'Open…', run: () => void openViaPicker(fileInputRef.current) },
     { label: 'Open Recent', run: () => setModal('recent') },
     { label: 'Save…', run: () => setModal('save') },
+    { label: `Gapped pages ${gappedPagesEnabled() ? '✓' : '✗'}`, run: () => { setGappedPages(!gappedPagesEnabled()); window.location.reload() } },
     { label: 'Sign in', run: () => navigate('/login') },
     { label: 'About', run: () => navigate('/about') },
   ]

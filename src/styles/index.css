@@ -53,6 +53,22 @@
     will-change: background-position;
   }
 
+  /* Gapped-pages mode: a full-bleed aqua band between A4 sheets (with a soft page-edge shadow) and a
+     centred page number, inserted by the pagination extension. Full-bleed so the parchment reads as
+     separate sheets floating on the aqua background. */
+  .inkwave-page-gap {
+    margin-left: calc(50% - 50vw);
+    width: 100vw;
+    background-color: #cfe9ec;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    box-shadow: inset 0 13px 12px -12px rgba(80, 50, 10, 0.28), inset 0 -13px 12px -12px rgba(80, 50, 10, 0.28);
+    user-select: none;
+  }
+  .inkwave-page-gap > span { margin-top: 12px; font-family: 'EB Garamond', Georgia, serif; color: #7c5aa6; font-size: 0.9rem; }
+  .inkwave-page-num { text-align: center; padding: 10px 0 28px; font-family: 'EB Garamond', Georgia, serif; color: #9b5ccc; font-size: 0.9rem; user-select: none; }
+
   /* On a phone: just the paper, no background. Drop the aqua + waves and the surface padding so the
      parchment fills the screen edge-to-edge (driven by device type, not viewport width, so zoom
      doesn't change it). */

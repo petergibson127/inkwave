@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { gappedPagesEnabled } from './pageView'
 
 // True on touch phones/tablets (coarse pointer, no hover). Device-based — does NOT change with
 // browser zoom — so it's the right signal for "phone vs desktop" layout (margins, background).
@@ -80,7 +81,9 @@ export function Scroll({
 // Recomputed on any size change (typing, resize, zoom). Purely visual overlay (no content reflow).
 function PageGuides({ sheetRef }: { sheetRef: RefObject<HTMLDivElement> }) {
   const [marks, setMarks] = useState<Array<{ y: number; n: number; rule: boolean }>>([])
+  const gapped = gappedPagesEnabled() // gapped mode draws real sheets + numbers itself
   useEffect(() => {
+    if (gapped) return
     const el = sheetRef.current
     if (!el || typeof ResizeObserver === 'undefined') return
     const recompute = () => {

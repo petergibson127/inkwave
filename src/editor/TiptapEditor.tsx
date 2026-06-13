@@ -9,6 +9,8 @@ import type { InkwaveDocument } from '../types/document'
 import { scheduleSave } from '../storage/opfs'
 import { upsertMeta } from '../storage/indexeddb'
 import { RedHighlightExtension, SCAS_HINT_META } from './extensions/RedHighlightExtension'
+import { PaginationExtension } from './extensions/PaginationExtension'
+import { gappedPagesEnabled } from './pageView'
 import type { HintState } from './extensions/RedHighlightExtension'
 import { REFLOW_OPEN_MS, type LineRange, type SlideRange } from './suggestions/ThesaurusPopover/popoverConstants'
 import { ScasSlotMark } from './extensions/ScasSlotMark'
@@ -174,6 +176,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   const editor = useEditor({
     extensions: [
       StarterKit,
+      PaginationExtension.configure({ enabled: gappedPagesEnabled() }),
       ScasSlotMark,
       TextStyle,
       FontFamily,
