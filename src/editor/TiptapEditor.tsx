@@ -29,8 +29,9 @@ import { createSnapshotIfChanged, listSnapshots, stampSnapshot, drainUnstamped, 
 import { ReceiptPanel } from '../components/ReceiptPanel'
 import { SessionRunner } from '../provenance/session'
 import { buildExportBundle, bundleFilename, downloadBundle } from '../provenance/bundle'
-import { fileSaveAvailable, pickSaveFile, getSaveFileHandle, writeBundleToFile } from '../storage/folder'
-import { oneDriveConfigured, oneDriveAccount, syncToOneDrive, startOneDriveSignIn, oneDriveSyncPending, clearOneDriveSyncPending, oneDrivePath, setChosenFolder, addRecentFolder, oneDriveFilename, setOneDriveFilename, type OneDriveFolder } from '../storage/onedrive'
+import { fileSaveAvailable, pickSaveFile, getSaveFileHandle, writeBundleToFile, readLocalHeartbeat } from '../storage/folder'
+import { oneDriveConfigured, oneDriveAccount, syncToOneDrive, startOneDriveSignIn, oneDriveSyncPending, clearOneDriveSyncPending, oneDrivePath, setChosenFolder, addRecentFolder, oneDriveFilename, setOneDriveFilename, readRemoteHeartbeat, type OneDriveFolder } from '../storage/onedrive'
+import { isOtherDeviceActive } from '../sync/presence'
 import { SyncStatus } from '../components/SyncStatus'
 import { OneDriveFolderPicker } from '../components/OneDriveFolderPicker'
 import { useZoomScale } from './useZoomScale'
@@ -97,6 +98,8 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   const [lastFileSave, setLastFileSave] = useState<number | null>(null)
   const [oneDriveUrl, setOneDriveUrl] = useState<string | null>(null) // synced file's webUrl (open in folder)
   const zoom = useZoomScale() // counter page zoom so the toolbar stays a constant size
+  const [otherDevice, setOtherDevice] = useState(false) // another device looks active on this doc
+  const [conflictDismissed, setConflictDismissed] = useState(false)
 
   const [currentParagraphIndex, setCurrentParagraphIndex] = useState(0)
   const [showHints, setShowHints] = useState(true)
@@ -597,6 +600,26 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     void getSaveFileHandle().then((h) => { folderActiveRef.current = !!h; if (h) setFileName(h.name) })
   }, [])
 
+  // Advisory multi-device guard: read the synced file's heartbeat (on load + every 45s) and warn if
+  // ANOTHER device wrote it recently — i.e. it looks open on another computer. Never locks: the doc
+  // stays editable and saved locally. Resets the dismissal when the document switches.
+  useEffect(() => {
+    setOtherDevice(false)
+    setConflictDismissed(false)
+    let cancelled = false
+    const check = async () => {
+      const hb = oneDriveActiveRef.current
+        ? await readRemoteHeartbeat(docRef.current)
+        : folderActiveRef.current
+          ? await readLocalHeartbeat()
+          : null
+      if (!cancelled) setOtherDevice(!!hb && isOtherDeviceActive(hb.session, hb.exportedAt))
+    }
+    void check()
+    const id = setInterval(() => void check(), 45_000)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [doc.id])
+
   // Open a live-composition signing session when the document opens / switches. On success the
   // controller adopts the server's S_v; on failure (offline / service down) we leave the session
   // null and the controller keeps its locally-derived S_v (composition degrades visibly).
@@ -715,6 +738,24 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   return (
     <ComplianceContext.Provider value={compliance}>
       <div>
+        {otherDevice && !conflictDismissed && (
+          <div
+            className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-3 px-4 py-2 text-sm font-serif"
+            style={{ background: '#fff7ed', borderBottom: '1px solid #f0c98a', color: '#92400e' }}
+          >
+            <span>
+              ⚠ This document looks open on another device — edits there and here may overwrite each
+              other. Your work is always saved on this device.
+            </span>
+            <button
+              type="button"
+              onClick={() => setConflictDismissed(true)}
+              className="underline whitespace-nowrap hover:opacity-70"
+            >
+              Got it
+            </button>
+          </div>
+        )}
         <Scroll paperRef={paperRef} containerRef={containerRef} phone={isTouch}>
           <EditorContent editor={editor} />
           {editor && (

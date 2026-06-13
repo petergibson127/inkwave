@@ -16,9 +16,12 @@ const devApi: PluginOption = {
       const ots = () => import('./api/_ots-core.mjs')
       // @ts-expect-error - untyped Node-only ESM module
       const prov = () => import('./api/_provenance-core.mjs')
+      // @ts-expect-error - untyped Node-only ESM module
+      const profile = () => import('./api/sync-profile.mjs')
       if (path === '/api/ots') return (await ots()).handleOts(body)
       if (path === '/api/session') return (await prov()).handleSession(body)
       if (path === '/api/sign') return (await prov()).handleSign(body)
+      if (path === '/api/sync-profile') return (await profile()).syncProfile(body)
       throw new Error('not found')
     }
     // GET /api/pubkey — the signing service's actual public key.
@@ -28,7 +31,7 @@ const devApi: PluginOption = {
       res.setHeader('content-type', 'application/json')
       res.end(JSON.stringify({ alg: 'Ed25519', keyId: 'inkwave-signing-v1', publicKeyHex: await publicKeyHex() }))
     })
-    for (const path of ['/api/ots', '/api/session', '/api/sign']) {
+    for (const path of ['/api/ots', '/api/session', '/api/sign', '/api/sync-profile']) {
       server.middlewares.use(path, (req, res) => {
         if (req.method !== 'POST') { res.statusCode = 405; return res.end('Method Not Allowed') }
         let raw = ''

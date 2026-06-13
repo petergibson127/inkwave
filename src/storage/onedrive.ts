@@ -10,7 +10,7 @@
 // enters the prerender/SSR graph.
 
 import type { InkwaveDocument, Snapshot } from '../types/document'
-import { buildExportBundle, bundleFilename, composeTraceFile } from '../provenance/bundle'
+import { buildExportBundle, bundleFilename, composeTraceFile, parseTraceFile } from '../provenance/bundle'
 import { readAppJson, writeAppJson } from './opfs'
 
 // The OneDrive folder the writer chose to sync into. id '' (or null) = the OneDrive root. `path` is
@@ -151,14 +151,18 @@ export function clearOneDriveSyncPending(): void {
   try { sessionStorage.removeItem(PENDING_KEY) } catch { /* ignore */ }
 }
 
-// PUT the file into the chosen folder (or the OneDrive root). Returns the file's webUrl so the UI
-// can offer "open in OneDrive". Graph addresses items by path relative to a folder id, or to root.
-async function putFile(token: string, name: string, content: string): Promise<string | null> {
+// The Graph /content URL for the synced file — addressed by path relative to a folder id, or root.
+function contentUrl(name: string): string {
   const folder = getChosenFolder()
-  const target = folder?.id
+  return folder?.id
     ? `${GRAPH}/me/drive/items/${folder.id}:/${encodeURIComponent(name)}:/content`
     : `${GRAPH}/me/drive/root:/${encodeURIComponent(name)}:/content`
-  const res = await fetch(target, {
+}
+
+// PUT the file into the chosen folder (or the OneDrive root). Returns the file's webUrl so the UI
+// can offer "open in OneDrive".
+async function putFile(token: string, name: string, content: string): Promise<string | null> {
+  const res = await fetch(contentUrl(name), {
     method: 'PUT',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'text/plain' },
     body: content,
@@ -166,6 +170,22 @@ async function putFile(token: string, name: string, content: string): Promise<st
   if (!res.ok) throw new Error(`Graph upload failed (${res.status})`)
   const data = await res.json().catch(() => ({} as { webUrl?: string }))
   return (data as { webUrl?: string }).webUrl ?? null
+}
+
+/** Read back the synced file's heartbeat (which device last wrote it, and when) for the multi-device
+ *  guard. null if not signed in / no file yet. */
+export async function readRemoteHeartbeat(doc: InkwaveDocument): Promise<{ session?: string; exportedAt?: string } | null> {
+  if (!CLIENT_ID) return null
+  const token = await getSilentToken()
+  if (!token) return null
+  try {
+    const res = await fetch(contentUrl(stableFilename(doc)), { headers: { Authorization: `Bearer ${token}` } })
+    if (!res.ok) return null
+    const bundle = parseTraceFile(await res.text())
+    return { session: bundle.session, exportedAt: bundle.exportedAt }
+  } catch {
+    return null
+  }
 }
 
 export interface DriveFolder { id: string; name: string }

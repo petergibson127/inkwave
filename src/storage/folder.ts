@@ -5,7 +5,7 @@
 // download (and/or OneDrive).
 
 import type { InkwaveDocument, Snapshot } from '../types/document'
-import { buildExportBundle, bundleFilename, composeTraceFile } from '../provenance/bundle'
+import { buildExportBundle, bundleFilename, composeTraceFile, parseTraceFile } from '../provenance/bundle'
 
 const DB_NAME = 'inkwave-folder'
 const STORE = 'handles'
@@ -86,6 +86,20 @@ export async function getSaveFileHandle(interactive = false): Promise<FileHandle
 
 export async function forgetSaveFile(): Promise<void> {
   await idbDel(KEY)
+}
+
+/** Read back the saved file's heartbeat (which device last wrote it, and when) for the multi-device
+ *  guard. null if no file / unreadable. */
+export async function readLocalHeartbeat(): Promise<{ session?: string; exportedAt?: string } | null> {
+  const handle = await getSaveFileHandle(false)
+  if (!handle) return null
+  try {
+    const text = await (await handle.getFile()).text()
+    const bundle = parseTraceFile(text)
+    return { session: bundle.session, exportedAt: bundle.exportedAt }
+  } catch {
+    return null
+  }
 }
 
 /** Write the current bundle to the chosen file (silent — no prompt). Returns true on success. */

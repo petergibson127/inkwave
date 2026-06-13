@@ -6,6 +6,7 @@
 import type { InkwaveDocument, Snapshot, SignedReceipt, TiptapJSON } from '../types/document'
 import { signingPublicKeyHex } from './receipts'
 import { POOL_ID } from '../scas/pool'
+import { deviceId } from '../sync/presence'
 
 // A clean, readable plain-text copy of the document — block nodes (paragraphs/headings/list items)
 // separated by blank lines, hard breaks as newlines. Sits near the top of the bundle so the writing
@@ -78,6 +79,7 @@ export interface ExportBundle {
   receipts: SignedReceipt[]   // the live-composition signed chain (held by the writer)
   signingKey: { keyId: string; alg: 'Ed25519'; publicKeyHex: string }
   poolId: string
+  session?: string // writing device id (advisory multi-device guard; not part of any hash)
 }
 
 function countWords(contentJson: TiptapJSON): number {
@@ -129,6 +131,7 @@ export function buildExportBundle(doc: InkwaveDocument, snapshots: Snapshot[]): 
     // INDEPENDENTLY published key (src/verify defaults to it), not blindly trust this field.
     signingKey: { keyId: 'inkwave-signing-v1', alg: 'Ed25519', publicKeyHex: signingPublicKeyHex() },
     poolId: doc.scasPoolId ?? POOL_ID,
+    session: deviceId(),
   }
 }
 
