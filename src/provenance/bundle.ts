@@ -7,8 +7,22 @@ import type { InkwaveDocument, Snapshot, SignedReceipt, TiptapJSON } from '../ty
 import { signingPublicKeyHex } from './receipts'
 import { POOL_ID } from '../scas/pool'
 
+export interface BundleSummary {
+  what: string
+  title: string
+  words: number
+  snapshots: number
+  signedReceipts: number
+  bitcoinAnchored: number
+  created: string
+  exported: string
+  verifyAt: string
+  note: string
+}
+
 export interface ExportBundle {
   v: 1
+  summary?: BundleSummary // human-readable header (first key) — what the file is, at a glance
   exportedAt: string
   document: {
     id: string
@@ -26,10 +40,38 @@ export interface ExportBundle {
   poolId: string
 }
 
+function countWords(contentJson: TiptapJSON): number {
+  let text = ''
+  const walk = (node: unknown): void => {
+    if (!node || typeof node !== 'object') return
+    const n = node as { text?: string; content?: unknown[] }
+    if (typeof n.text === 'string') text += n.text + ' '
+    if (Array.isArray(n.content)) n.content.forEach(walk)
+  }
+  walk(contentJson)
+  const m = text.trim().match(/[\p{L}\p{N}]+/gu)
+  return m ? m.length : 0
+}
+
 export function buildExportBundle(doc: InkwaveDocument, snapshots: Snapshot[]): ExportBundle {
+  const receipts = doc.scasReceipts ?? []
+  const exportedAt = new Date().toISOString()
+  const summary: BundleSummary = {
+    what: 'Inkwave provenance record — a tamper-evident, independently-verifiable record of how this document was written.',
+    title: doc.title || 'Untitled',
+    words: countWords(doc.contentJson),
+    snapshots: snapshots.length,
+    signedReceipts: receipts.length,
+    bitcoinAnchored: snapshots.filter((s) => s.ots.status === 'confirmed').length,
+    created: doc.createdAt,
+    exported: exportedAt,
+    verifyAt: 'https://inkwave.studio/verify',
+    note: 'Open this file at the verify link above (or any Inkwave /verify page) to check it — entirely in your browser, against the published signing key and Bitcoin, with no sign-in. The fields below are the cryptographic record; this summary is for humans.',
+  }
   return {
     v: 1,
-    exportedAt: new Date().toISOString(),
+    summary,
+    exportedAt,
     document: {
       id: doc.id,
       title: doc.title,
@@ -41,7 +83,7 @@ export function buildExportBundle(doc: InkwaveDocument, snapshots: Snapshot[]): 
       scasPoolId: doc.scasPoolId,
     },
     snapshots,
-    receipts: doc.scasReceipts ?? [],
+    receipts,
     // A reference to the key the writer's client used; a verifier should still check against the
     // INDEPENDENTLY published key (src/verify defaults to it), not blindly trust this field.
     signingKey: { keyId: 'inkwave-signing-v1', alg: 'Ed25519', publicKeyHex: signingPublicKeyHex() },

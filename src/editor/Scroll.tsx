@@ -33,7 +33,8 @@ export function Scroll({
       >
         {/* Parchment paper body — a clean rounded rectangle now (both wooden rollers removed).
             This is the surface the vectorised torn-paper edge will eventually replace. */}
-        <div className="scroll-paper relative px-2 pt-8 pb-24" style={{ borderRadius: '8px' }}>
+        {/* px-2 on mobile; thicker side margins on desktop (md:px-16) for roomier margins */}
+        <div className="scroll-paper relative px-2 md:px-16 pt-8 pb-24" style={{ borderRadius: '8px' }}>
           <div className="mx-auto w-full max-w-[560px] md:max-w-[720px] relative" ref={containerRef}>
             {children}
           </div>

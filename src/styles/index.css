@@ -24,13 +24,14 @@
     padding: 1.25rem 1rem 8rem;
   }
 
-  /* Parchment paper texture for the scroll body */
+  /* The page surface behind the text — a pale aquamarine blue (tweak the base hex to taste).
+     Keeps the subtle grain (grayscale noise) + soft depth gradients, cooled to match the aqua. */
   .scroll-paper {
-    background-color: #f7f2e8;
+    background-color: #daf0ee;
     background-image:
-      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='400' height='400' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E"),
-      linear-gradient(160deg, rgba(255,248,230,0.6) 0%, transparent 50%),
-      linear-gradient(to bottom, rgba(210,190,150,0.12) 0%, transparent 30%, rgba(180,160,120,0.08) 100%);
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='400' height='400' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E"),
+      linear-gradient(160deg, rgba(255,255,255,0.45) 0%, transparent 50%),
+      linear-gradient(to bottom, rgba(150,200,195,0.10) 0%, transparent 30%, rgba(120,175,170,0.07) 100%);
   }
 
   /* Tiptap editor content styles */

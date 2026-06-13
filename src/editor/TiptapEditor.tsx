@@ -444,14 +444,21 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     void listSnapshots(docId).then((snaps) => mirrorDocument(docRef.current, snaps)).catch(() => {})
   }
 
-  // "Save to folder" — grant a folder on first use (a user gesture), then mirror. The folder IS the
-  // login: point it at a cloud-synced directory and the OS handles cross-device sync.
+  // "Save to folder" — grant a folder on first use, then mirror. The folder IS the login: point it
+  // at a cloud-synced directory and the OS handles cross-device sync. NOTE: showDirectoryPicker /
+  // requestPermission must run inside the click's user-gesture — so on first grant we call the
+  // picker FIRST (no await before it), and only re-permission a known folder (which usually needs
+  // no prompt in-session) otherwise. An await before the picker silently breaks the gesture.
   async function saveToFolder() {
-    let granted = await getGrantedFolder(true)
-    if (!granted) granted = await grantFolder()
-    if (!granted) return
-    folderActiveRef.current = true
-    setFolderActive(true)
+    if (!folderActiveRef.current) {
+      const granted = await grantFolder() // picker is the first call inside → in-gesture
+      if (!granted) return
+      folderActiveRef.current = true
+      setFolderActive(true)
+    } else {
+      const ok = await getGrantedFolder(true)
+      if (!ok) { folderActiveRef.current = false; setFolderActive(false); return }
+    }
     mirrorIfActive()
   }
 
@@ -662,7 +669,12 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
                 style
               </button>
               <GuideMenu />
-              <OptionsMenu paperRight={paperRight} />
+              <OptionsMenu
+                paperRight={paperRight}
+                onExportBundle={exportBundle}
+                onSaveToFolder={saveToFolder}
+                folderAvailable={folderApiAvailable()}
+              />
             </div>
             )}
           </div>
