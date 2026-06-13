@@ -29,7 +29,7 @@ import { createSnapshotIfChanged, listSnapshots, stampSnapshot, drainUnstamped, 
 import { ReceiptPanel } from '../components/ReceiptPanel'
 import { SessionRunner } from '../provenance/session'
 import { buildExportBundle, bundleFilename, downloadBundle } from '../provenance/bundle'
-import { fileSaveAvailable, pickSaveFile, getSaveFileHandle, writeBundleToFile, readLocalHeartbeat } from '../storage/folder'
+import { fileSaveAvailable, pickSaveFile, getSaveFileHandle, getSaveFileName, writeBundleToFile, readLocalHeartbeat } from '../storage/folder'
 import { oneDriveConfigured, oneDriveAccount, syncToOneDrive, startOneDriveSignIn, oneDriveSyncPending, clearOneDriveSyncPending, oneDrivePath, setChosenFolder, addRecentFolder, oneDriveFilename, setOneDriveFilename, readRemoteHeartbeat, type OneDriveFolder } from '../storage/onedrive'
 import { isOtherDeviceActive } from '../sync/presence'
 import { SyncStatus } from '../components/SyncStatus'
@@ -101,6 +101,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   const [otherDevice, setOtherDevice] = useState(false) // another device looks active on this doc
   const [conflictDismissed, setConflictDismissed] = useState(false)
   const [wordCount, setWordCount] = useState(0) // live document word count (shown in the record panel)
+  const [needsReconnect, setNeedsReconnect] = useState(false) // linked file exists but write permission lapsed
 
   const [currentParagraphIndex, setCurrentParagraphIndex] = useState(0)
   const [showHints, setShowHints] = useState(true)
@@ -482,8 +483,9 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     if (folderActiveRef.current) {
       void listSnapshots(docRef.current.id)
         .then((snaps) => writeBundleToFile(docRef.current, snaps))
-        .then((ok) => { if (ok) setLastFileSave(Date.now()) })
-        .catch(() => {})
+        // A failed write means permission lapsed — stop claiming "synced" and prompt a reconnect.
+        .then((ok) => { if (ok) setLastFileSave(Date.now()); else { folderActiveRef.current = false; setNeedsReconnect(true) } })
+        .catch(() => { folderActiveRef.current = false; setNeedsReconnect(true) })
     }
     if (oneDriveActiveRef.current) scheduleOneDriveSync()
   }
@@ -610,8 +612,26 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   // installed PWA); otherwise the writer re-grants on the next manual Save.
   async function linkSaveFileNow() {
     const h = await getSaveFileHandle(docRef.current.id, false)
-    if (!h) { folderActiveRef.current = false; return }
+    if (h) {
+      folderActiveRef.current = true
+      setNeedsReconnect(false)
+      setFileName(h.name)
+      const snaps = await listSnapshots(docRef.current.id)
+      if (await writeBundleToFile(docRef.current, snaps)) setLastFileSave(Date.now())
+      return
+    }
+    // A linked file exists but we don't currently have write permission → show a clear "reconnect"
+    // state (never a false "synced"), so the writer knows it ISN'T saving until they re-allow it.
+    const name = await getSaveFileName(docRef.current.id)
+    folderActiveRef.current = false
+    if (name) { setFileName(name); setNeedsReconnect(true) } else { setNeedsReconnect(false) }
+  }
+  // Re-grant write access (shows the browser's permission popup) and resume saving.
+  async function reconnectFolder() {
+    const h = await getSaveFileHandle(docRef.current.id, true)
+    if (!h) return
     folderActiveRef.current = true
+    setNeedsReconnect(false)
     setFileName(h.name)
     const snaps = await listSnapshots(docRef.current.id)
     if (await writeBundleToFile(docRef.current, snaps)) setLastFileSave(Date.now())
@@ -814,8 +834,19 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
             Safari → OneDrive. The label reads clearly in every state. */}
         {(() => {
           if (fileSaveAvailable()) {
-            // Regular browser → local folder. Always show the indicator (a "Save to a folder"
-            // prompt before a file is linked, so it never just disappears).
+            // Regular browser → local folder. Honest states so the writer is never misled into
+            // thinking it's saving when it isn't:
+            if (needsReconnect) {
+              return (
+                <SyncStatus
+                  label="⚠ Reconnect to keep saving"
+                  synced={false}
+                  path={fileName}
+                  tooltip={fileName ? `Click to re-allow saving to ${fileName}` : 'Click to re-allow saving'}
+                  onClick={() => void reconnectFolder()}
+                />
+              )
+            }
             return fileName ? (
               <SyncStatus
                 label={lastFileSave ? '✓ Synced to folder' : '🗀 Syncing to folder…'}

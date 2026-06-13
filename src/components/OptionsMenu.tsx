@@ -43,16 +43,23 @@ async function openFile(file: File, handle?: FileSystemFileHandle): Promise<void
 async function openViaPicker(fileInput: HTMLInputElement | null): Promise<void> {
   const w = window as unknown as { showOpenFilePicker?: (o: unknown) => Promise<FileSystemFileHandle[]> }
   if (!w.showOpenFilePicker) { fileInput?.click(); return }
+  let handle: FileSystemFileHandle
   try {
-    const [handle] = await w.showOpenFilePicker({
+    // NB: File System Access rejects multi-dot extensions (".trace.json"), so filter on ".json"
+    // (our files end in .json). A malformed filter would make the picker throw → Open… do nothing.
+    ;[handle] = await w.showOpenFilePicker({
       multiple: false,
-      types: [{ description: 'Inkwave record', accept: { 'application/json': ['.trace.json', '.insig.json', '.json'] } }],
+      types: [{ description: 'Inkwave record', accept: { 'application/json': ['.json'] } }],
     })
-    const file = await handle.getFile()
-    // Ask for write access now (in the click gesture) so future edits can save back to this file.
-    try { await (handle as unknown as { requestPermission?: (d: { mode: string }) => Promise<string> }).requestPermission?.({ mode: 'readwrite' }) } catch { /* read-only is fine */ }
-    await openFile(file, handle)
-  } catch { /* cancelled / bad file */ }
+  } catch (e) {
+    if ((e as Error)?.name === 'AbortError') return // user cancelled — fine
+    fileInput?.click() // any other failure → fall back to the plain file input
+    return
+  }
+  // Ask for write access now (in the click gesture) so edits can save back to this file.
+  try { await (handle as unknown as { requestPermission?: (d: { mode: string }) => Promise<string> }).requestPermission?.({ mode: 'readwrite' }) } catch { /* read-only is fine */ }
+  const file = await handle.getFile()
+  await openFile(file, handle)
 }
 
 // Switch the active document by id. inPlace → tell the live editor to swap (no reload, preserves
