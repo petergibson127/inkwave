@@ -4,7 +4,8 @@
 
 @layer base {
   html {
-    background-color: #ffffff;
+    /* Pale aquamarine blue behind everything (matches the editor page; shows on overscroll). */
+    background-color: #cfe9ec;
     color: #1a1a1a;
     /* Stop iOS Safari auto-inflating text, which desyncs the canvas-based width
        measurements the popover's in-place spacing relies on. */
@@ -18,20 +19,25 @@
      the top of the viewport; the bottom leaves room for the floating footer toolbar. */
   .inkwave-editor-surface {
     min-height: 100vh;
-    background-color: #ffffff;
+    /* Pale aquamarine blue with gentle waves behind the parchment (the browser background the
+       paper floats on). Waves are a tiled SVG (white, low-opacity) over the aqua base; tweak the
+       base hex / wave opacity to taste. */
+    background-color: #cfe9ec;
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='70'%3E%3Cpath d='M0 50 Q35 32 70 50 T140 50' fill='none' stroke='white' stroke-opacity='0.5' stroke-width='2'/%3E%3Cpath d='M0 22 Q35 4 70 22 T140 22' fill='none' stroke='white' stroke-opacity='0.28' stroke-width='2'/%3E%3C/svg%3E");
+    background-size: 140px 70px;
     /* ~half a line of breathing space above the parchment; sides 1rem; bottom leaves room for
        the floating footer toolbar. The top value is the single knob for page position. */
     padding: 1.25rem 1rem 8rem;
   }
 
-  /* The page surface behind the text — a pale aquamarine blue (tweak the base hex to taste).
-     Keeps the subtle grain (grayscale noise) + soft depth gradients, cooled to match the aqua. */
+  /* Parchment paper texture for the scroll body (the page the text sits on) */
   .scroll-paper {
-    background-color: #daf0ee;
+    background-color: #f7f2e8;
     background-image:
-      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='400' height='400' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E"),
-      linear-gradient(160deg, rgba(255,255,255,0.45) 0%, transparent 50%),
-      linear-gradient(to bottom, rgba(150,200,195,0.10) 0%, transparent 30%, rgba(120,175,170,0.07) 100%);
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='400' height='400' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E"),
+      linear-gradient(160deg, rgba(255,248,230,0.6) 0%, transparent 50%),
+      linear-gradient(to bottom, rgba(210,190,150,0.12) 0%, transparent 30%, rgba(180,160,120,0.08) 100%);
   }
 
   /* Tiptap editor content styles */
