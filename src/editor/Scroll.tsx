@@ -37,7 +37,7 @@ export function Scroll({
     let raf = 0
     const apply = () => {
       raf = 0
-      el.style.setProperty('--wave-x', `${(window.scrollY * 0.06).toFixed(1)}px`) // gentle horizontal sway
+      el.style.setProperty('--wave-x', `${(window.scrollY * 0.12).toFixed(1)}px`) // horizontal sway
     }
     const onScroll = () => { if (!raf) raf = requestAnimationFrame(apply) }
     apply()
