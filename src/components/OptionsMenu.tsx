@@ -46,6 +46,20 @@ export function OptionsMenu({ paperRight }: { paperRight: number }) {
     { label: 'Settings',    run: () => setModal('settings') },
   ]
 
+  // TEMPORARY dev-only toggle (stripped from prod builds): highlight every constrainable word so
+  // pasted/typed text lights up densely for testing the word-cycle animation. On the live site use
+  // `?debughl=1` instead. Reloads so the editor decoration picks up the change.
+  if (import.meta.env.DEV) {
+    const on = typeof localStorage !== 'undefined' && localStorage.getItem('inkwave:debugHighlightAll') === '1'
+    items.push({
+      label: `Debug: highlight all ${on ? '✓' : '✗'}`,
+      run: () => {
+        try { localStorage.setItem('inkwave:debugHighlightAll', on ? '0' : '1') } catch { /* private mode */ }
+        window.location.reload()
+      },
+    })
+  }
+
   // Position the panel 12px inside the right edge of the paper, vertically just above
   // the toolbar. paperRight is measured (and re-measured on resize/zoom) in CSS px, so
   // the 12px gap holds at every zoom level.

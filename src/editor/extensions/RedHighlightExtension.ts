@@ -2,8 +2,22 @@ import { Extension } from '@tiptap/react'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import type { Node as PMNode } from '@tiptap/pm/model'
-import { lemmaOf } from '../../scas/engine'
+import { lemmaOf, inPool } from '../../scas/engine'
 import { isColoured, type ScasLookup } from '../../scas/state'
+
+// TEMPORARY debug aid (NOT for the final product — a no-paste feature is coming): highlight EVERY
+// constrainable (pool) word, so pasted/typed text lights up densely for testing the word-cycle
+// animation. Off by default. Turn on with `?debughl=1` (works on the live site too) or via the
+// dev-only Options menu toggle (localStorage `inkwave:debugHighlightAll`).
+function debugHighlightAll(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    if (new URLSearchParams(window.location.search).get('debughl') === '1') return true
+    return window.localStorage.getItem('inkwave:debugHighlightAll') === '1'
+  } catch {
+    return false
+  }
+}
 import type { InkwaveDocument } from '../../types/document'
 import { REFLOW_OPEN_MS, REFLOW_EASE, type LineRange, type SlideRange } from '../suggestions/ThesaurusPopover/popoverConstants'
 
@@ -113,6 +127,7 @@ function buildDecorations(
   // already-committed text). `lemmaOf` collapses inflections to the state key.
   const redWords: RedWord[] = []
   let paragraphIndex = 0
+  const debugAll = debugHighlightAll() // temporary: colour every pool word for animation testing
 
   pmDoc.descendants((node: PMNode, pos: number) => {
     if (node.type.name !== 'paragraph') return true
@@ -140,7 +155,8 @@ function buildDecorations(
           if (!nextChar || !/[\s.,;:!?)\-'"…]/.test(nextChar)) continue
         }
 
-        if (!isColoured(lookup, lemmaOf(word))) continue
+        const lemma = lemmaOf(word)
+        if (!isColoured(lookup, lemma) && !(debugAll && inPool(lemma))) continue
 
         redWords.push({
           from, to, pIdx, word, seqInPara: ++seqInPara,
