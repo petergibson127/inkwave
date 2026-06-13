@@ -36,7 +36,12 @@ export async function openInkwaveFile(file: File, handle?: FileSystemFileHandle)
   await upsertMeta({ id, title: doc.title, updatedAt: doc.updatedAt })
   try { localStorage.setItem(ACTIVE_DOC_KEY, id) } catch { /* private mode */ }
 
-  // If the editor is mounted, switch in place; otherwise Edit's init reads the active-doc pointer.
-  window.dispatchEvent(new CustomEvent('inkwave:open-doc', { detail: { id } }))
-  if (handle) window.dispatchEvent(new Event('inkwave:save-file-linked'))
+  // With a writable handle, switch IN PLACE (no reload) so the just-granted file permission survives.
+  // Without one, reload so the editor loads the doc cleanly (also covers PWA cold launch).
+  if (handle) {
+    window.dispatchEvent(new CustomEvent('inkwave:open-doc', { detail: { id } }))
+    window.dispatchEvent(new Event('inkwave:save-file-linked'))
+  } else {
+    window.location.reload()
+  }
 }

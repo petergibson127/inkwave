@@ -41,11 +41,11 @@ async function openViaPicker(fileInput: HTMLInputElement | null): Promise<void> 
   await openInkwaveFile(await handle.getFile(), handle)
 }
 
-// Switch the active document by id — IN PLACE (no reload), so file-write permissions granted this
-// session survive (auto-sync keeps working when switching between recently-opened docs).
+// Switch the active document by id and reload so the editor loads it cleanly (reliable for New /
+// Open Recent). The writable-handle "Open…" path switches in place instead (see openInkwaveFile).
 function openDocument(id: string) {
   try { localStorage.setItem(ACTIVE_DOC_KEY, id) } catch { /* private mode */ }
-  window.dispatchEvent(new CustomEvent('inkwave:open-doc', { detail: { id } }))
+  window.location.reload()
 }
 
 async function createDocument(title: string, contentJson: InkwaveDocument['contentJson'], id: string = uuidv4()): Promise<void> {
