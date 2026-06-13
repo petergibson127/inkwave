@@ -19,6 +19,9 @@
      the top of the viewport; the bottom leaves room for the floating footer toolbar. */
   .inkwave-editor-surface {
     position: relative;
+    /* Own stacking context so the z-index:-1 wave ::before paints ABOVE this aqua base (not behind
+       it) yet stays below content. Without this the waves vanish behind the opaque background. */
+    isolation: isolate;
     min-height: 100vh;
     /* Pale aquamarine blue behind the parchment (the browser background the paper floats on). */
     background-color: #cfe9ec;
@@ -36,8 +39,9 @@
     inset: 0;
     z-index: -1; /* behind content (over the aqua base) — must NOT raise content above the toolbar */
     pointer-events: none;
+    /* Two waves per tile at alternating thickness (a thicker one every other line) for rhythm. */
     background-image:
-      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='70'%3E%3Cpath d='M0 50 Q35 32 70 50 T140 50' fill='none' stroke='white' stroke-opacity='0.5' stroke-width='2'/%3E%3Cpath d='M0 22 Q35 4 70 22 T140 22' fill='none' stroke='white' stroke-opacity='0.28' stroke-width='2'/%3E%3C/svg%3E");
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='70'%3E%3Cpath d='M0 50 Q35 32 70 50 T140 50' fill='none' stroke='white' stroke-opacity='0.5' stroke-width='3'/%3E%3Cpath d='M0 22 Q35 4 70 22 T140 22' fill='none' stroke='white' stroke-opacity='0.28' stroke-width='1.4'/%3E%3C/svg%3E");
     background-size: 140px 70px;
     opacity: 1;
     transition: opacity 280ms ease;

@@ -4,6 +4,7 @@
 // (open/new) persists the active id and reloads — the editor's loader (Edit.tsx) then opens it.
 
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router'
 import { v4 as uuidv4 } from 'uuid'
 import type { DocumentMeta, InkwaveDocument } from '../types/document'
@@ -229,7 +230,9 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  return (
+  // Portal to body so the backdrop reliably covers the viewport and catches outside clicks (not
+  // trapped in the footer's pointer-events/stacking context).
+  return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onMouseDown={onClose}>
       <div className="absolute inset-0 bg-stone-900/20" aria-hidden="true" />
       <div role="dialog" aria-modal="true" aria-label={title} onMouseDown={e => e.stopPropagation()}
@@ -242,6 +245,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

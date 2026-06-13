@@ -1,7 +1,8 @@
 // GuideMenu — "guide" toolbar button with a drop-up info panel: the desktop hotkeys
 // for the word cycle, plus a note about the formatting IME still to be built.
 
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 const INK = '#5c2d8a'
 
@@ -15,19 +16,17 @@ const KEYS: Array<{ k: string; d: string }> = [
 
 export function GuideMenu() {
   const [open, setOpen] = useState(false)
-  const rootRef = useRef<HTMLDivElement>(null)
 
+  // Close on Escape. Outside-click is handled by the (portaled) backdrop's onMouseDown.
   useEffect(() => {
     if (!open) return
-    const onDown = (e: MouseEvent) => { if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false) }
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('mousedown', onDown)
     document.addEventListener('keydown', onKey)
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey) }
+    return () => document.removeEventListener('keydown', onKey)
   }, [open])
 
   return (
-    <div ref={rootRef} className="relative flex items-center font-serif">
+    <div className="relative flex items-center font-serif">
       <button
         type="button"
         aria-haspopup="menu"
@@ -38,7 +37,7 @@ export function GuideMenu() {
         guide
       </button>
 
-      {open && (
+      {open && createPortal(
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onMouseDown={() => setOpen(false)}>
           <div className="absolute inset-0 bg-stone-900/20" aria-hidden="true" />
           <div
@@ -67,7 +66,8 @@ export function GuideMenu() {
               comma will be handled by a built-in IME <span className="text-stone-400">(coming soon)</span>.
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )
