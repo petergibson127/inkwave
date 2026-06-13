@@ -11,12 +11,14 @@ export function ReceiptPanel({
   receiptCount = 0,
   chainStatus,
   onVerifyChain,
+  wordCount,
 }: {
   snapshots: Snapshot[]
   onCheckBitcoin?: () => void
   receiptCount?: number
   chainStatus?: string | null
   onVerifyChain?: () => void
+  wordCount?: number
 }) {
   const [open, setOpen] = useState(false)
   const zoom = useZoomScale()
@@ -31,7 +33,7 @@ export function ReceiptPanel({
     return () => document.removeEventListener('keydown', onKey)
   }, [open])
 
-  const panelOpen = open && (n > 0 || receiptCount > 0)
+  const panelOpen = open && (n > 0 || receiptCount > 0 || typeof wordCount === 'number')
 
   return (
     <>
@@ -99,6 +101,11 @@ export function ReceiptPanel({
                 </span>
               </button>
             ))}
+            {typeof wordCount === 'number' && (
+              <div className="px-2.5 py-1.5 text-stone-500 tabular-nums">
+                {wordCount} word{wordCount === 1 ? '' : 's'}
+              </div>
+            )}
           </div>
         )}
       </div>

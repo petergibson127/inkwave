@@ -100,6 +100,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   const zoom = useZoomScale() // counter page zoom so the toolbar stays a constant size
   const [otherDevice, setOtherDevice] = useState(false) // another device looks active on this doc
   const [conflictDismissed, setConflictDismissed] = useState(false)
+  const [wordCount, setWordCount] = useState(0) // live document word count (shown in the record panel)
 
   const [currentParagraphIndex, setCurrentParagraphIndex] = useState(0)
   const [showHints, setShowHints] = useState(true)
@@ -353,6 +354,15 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     editor.on('update', onChange)
     return () => { editor.off('selectionUpdate', onChange); editor.off('update', onChange); cancelAnimationFrame(raf) }
   }, [editor]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Live word count for the record panel.
+  useEffect(() => {
+    if (!editor) return
+    const count = () => { const m = editor.getText().match(/[\p{L}\p{N}]+/gu); setWordCount(m ? m.length : 0) }
+    count()
+    editor.on('update', count)
+    return () => { editor.off('update', count) }
+  }, [editor])
   // When the keyboard opens, the caret may already be behind it — lift it once.
   useEffect(() => {
     if (keyboardUp) requestAnimationFrame(() => keepCaretRef.current())
@@ -784,6 +794,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
           receiptCount={receipts.length}
           chainStatus={chainStatus}
           onVerifyChain={verifyReceiptChain}
+          wordCount={wordCount}
         />
 
         {/* One sync indicator. Regular browser (File System Access) → local folder only; Firefox/

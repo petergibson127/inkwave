@@ -58,7 +58,7 @@ export function Scroll({
           fills the screen edge-to-edge, no shadow. */}
       <div
         ref={paperRef}
-        className={`mx-auto w-full ${phone ? 'max-w-full' : 'max-w-[780px]'}`}
+        className={`mx-auto w-full ${phone ? 'max-w-full' : 'max-w-[210mm]'}`}
         style={{
           // box-shadow (not filter: drop-shadow) so the absolutely-positioned cycle card
           // rendered inside doesn't feed its pixels into the shadow — drop-shadow re-rasterises
@@ -113,8 +113,9 @@ function PageGuides({ sheetRef }: { sheetRef: RefObject<HTMLDivElement> }) {
     <div className="absolute inset-0 pointer-events-none select-none" style={{ zIndex: 0 }} aria-hidden="true">
       {marks.map(({ y, n, rule }) => (
         <div key={n} style={{ position: 'absolute', top: y, left: 0, right: 0 }}>
-          {rule && <div style={{ borderTop: '1px dashed rgba(92,45,138,0.16)' }} />}
-          <div className="text-center font-serif" style={{ fontSize: '0.8rem', color: 'rgba(92,45,138,0.4)', marginTop: rule ? 4 : -18 }}>
+          {rule && <div style={{ borderTop: '1px dashed rgba(92,45,138,0.45)' }} />}
+          {/* Page number out in the right margin, solid + readable (non-gapped page-guide mode). */}
+          <div className="font-serif" style={{ position: 'absolute', right: 14, top: rule ? 4 : -26, fontSize: '1rem', color: '#9b5ccc' }}>
             {n}
           </div>
         </div>
