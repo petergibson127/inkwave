@@ -14,6 +14,8 @@ export function ReceiptPanel({
   onSave,
   folderAvailable,
   folderActive,
+  onSyncOneDrive,
+  oneDriveAccount,
 }: {
   snapshots: Snapshot[]
   onCheckBitcoin?: () => void
@@ -24,6 +26,8 @@ export function ReceiptPanel({
   onSave?: () => void
   folderAvailable?: boolean
   folderActive?: boolean
+  onSyncOneDrive?: () => void
+  oneDriveAccount?: string | null
 }) {
   const [open, setOpen] = useState(false)
   const n = snapshots.length
@@ -85,6 +89,17 @@ export function ReceiptPanel({
               title={folderAvailable ? 'Mirror your work into a folder you control (cloud-synced)' : 'Download your record (folder sync needs Chrome/Edge/Brave)'}
             >
               {folderAvailable ? (folderActive ? '🗀 folder linked — re-save' : '🗀 save to folder…') : '💾 save record'}
+            </button>
+          )}
+          {onSyncOneDrive && (
+            <button
+              type="button"
+              onClick={onSyncOneDrive}
+              className="w-full px-2.5 py-1.5 text-left hover:bg-stone-50"
+              style={{ borderBottom: '1px solid rgba(92, 45, 138, 0.12)', color: oneDriveAccount ? '#246b24' : '#5c2d8a' }}
+              title="Sync your record to OneDrive (works on any browser)"
+            >
+              {oneDriveAccount ? `☁ OneDrive: ${oneDriveAccount} — re-sync` : '☁ sync to OneDrive…'}
             </button>
           )}
           {onExport && folderAvailable && (

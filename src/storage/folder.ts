@@ -8,30 +8,7 @@
 // On return we re-check permission (queryPermission/requestPermission).
 
 import type { InkwaveDocument, Snapshot } from '../types/document'
-import { buildExportBundle, bundleFilename, type BundleSummary } from '../provenance/bundle'
-
-function readme(s?: BundleSummary): string {
-  return [
-    'Inkwave — your provenance record',
-    '================================',
-    '',
-    'This folder mirrors your writing and its tamper-evident provenance record.',
-    '',
-    s ? `  Document : ${s.title}` : '',
-    s ? `  Words    : ${s.words}` : '',
-    s ? `  Snapshots: ${s.snapshots}   Signed receipts: ${s.signedReceipts}   Bitcoin-anchored: ${s.bitcoinAnchored}` : '',
-    '',
-    'Files:',
-    '  *.json (the “inkwave-…” one)  — the self-verifying export bundle. Open it at',
-    '                                  https://inkwave.studio/verify to check it (no sign-in).',
-    '  *.current.json                — the document content (for reloading your work).',
-    '  *.snapshots.json              — the dated snapshots with their Bitcoin proofs.',
-    '',
-    'You hold this record; Inkwave keeps nothing. Anyone can verify it against Inkwave’s',
-    'published signing key and Bitcoin, with no Inkwave server in the loop.',
-    '',
-  ].filter((l) => l !== '').join('\n') + '\n'
-}
+import { buildExportBundle, bundleFilename, bundleReadme } from '../provenance/bundle'
 
 // Minimal IDB store for the single granted folder handle (separate from the doc-metadata DB).
 const DB_NAME = 'inkwave-folder'
@@ -137,7 +114,7 @@ export async function mirrorDocument(doc: InkwaveDocument, snapshots: Snapshot[]
     await writeFile(dir, `${doc.id}.current.json`, JSON.stringify(doc, null, 2))
     await writeFile(dir, `${doc.id}.snapshots.json`, JSON.stringify(snapshots, null, 2))
     await writeFile(dir, bundleFilename(doc), JSON.stringify(bundle, null, 2))
-    await writeFile(dir, 'README.txt', readme(bundle.summary))
+    await writeFile(dir, 'README.txt', bundleReadme(bundle.summary))
     return true
   } catch {
     return false // permission lost / disk error — caller keeps OPFS as source of truth

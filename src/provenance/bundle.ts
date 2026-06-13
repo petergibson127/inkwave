@@ -91,6 +91,30 @@ export function buildExportBundle(doc: InkwaveDocument, snapshots: Snapshot[]): 
   }
 }
 
+/** Plain-text README written alongside the mirrored files (folder + OneDrive), for humans. */
+export function bundleReadme(s?: BundleSummary): string {
+  return [
+    'Inkwave — your provenance record',
+    '================================',
+    '',
+    'This folder mirrors your writing and its tamper-evident provenance record.',
+    '',
+    s ? `  Document : ${s.title}` : '',
+    s ? `  Words    : ${s.words}` : '',
+    s ? `  Snapshots: ${s.snapshots}   Signed receipts: ${s.signedReceipts}   Bitcoin-anchored: ${s.bitcoinAnchored}` : '',
+    '',
+    'Files:',
+    '  inkwave-*.json     — the self-verifying export bundle. Open it at',
+    '                       https://inkwave.studio/verify to check it (no sign-in).',
+    '  *.current.json     — the document content (for reloading your work).',
+    '  *.snapshots.json   — the dated snapshots with their Bitcoin proofs.',
+    '',
+    'You hold this record; Inkwave keeps nothing. Anyone can verify it against Inkwave’s',
+    'published signing key and Bitcoin, with no Inkwave server in the loop.',
+    '',
+  ].filter((l) => l !== '').join('\n') + '\n'
+}
+
 export function bundleFilename(doc: InkwaveDocument): string {
   const slug = (doc.title || 'untitled').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'untitled'
   return `inkwave-${slug}.json`

@@ -2,7 +2,7 @@ import { Edit } from '../../src/routes/Edit'
 
 export function meta() {
   return [
-    { title: 'Inkwave — a calm place to write' },
+    { title: 'Inkwave: a calm place to write' },
     {
       name: 'description',
       content:

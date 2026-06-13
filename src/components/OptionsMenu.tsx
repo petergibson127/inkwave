@@ -39,11 +39,15 @@ export function OptionsMenu({
   onExportBundle,
   onSave,
   folderAvailable,
+  onSyncOneDrive,
+  oneDriveAccount,
 }: {
   paperRight: number
   onExportBundle?: () => void
   onSave?: () => void
   folderAvailable?: boolean
+  onSyncOneDrive?: () => void
+  oneDriveAccount?: string | null
 }) {
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -111,7 +115,7 @@ export function OptionsMenu({
 
       {modal && (
         <Modal title={MODAL_TITLES[modal]} onClose={() => setModal(null)}>
-          {modal === 'save' && <SavePanel onExportBundle={onExportBundle} onSave={onSave} folderAvailable={folderAvailable} onDone={() => setModal(null)} />}
+          {modal === 'save' && <SavePanel onExportBundle={onExportBundle} onSave={onSave} folderAvailable={folderAvailable} onSyncOneDrive={onSyncOneDrive} oneDriveAccount={oneDriveAccount} onDone={() => setModal(null)} />}
           {modal === 'open' && <OpenPanel onClose={() => setModal(null)} />}
           {modal === 'recent' && <RecentPanel />}
         </Modal>
@@ -135,8 +139,9 @@ function MenuButton({ onClick, children }: { onClick?: () => void; children: Rea
   )
 }
 
-function SavePanel({ onExportBundle, onSave, folderAvailable, onDone }: {
-  onExportBundle?: () => void; onSave?: () => void; folderAvailable?: boolean; onDone: () => void
+function SavePanel({ onExportBundle, onSave, folderAvailable, onSyncOneDrive, oneDriveAccount, onDone }: {
+  onExportBundle?: () => void; onSave?: () => void; folderAvailable?: boolean
+  onSyncOneDrive?: () => void; oneDriveAccount?: string | null; onDone: () => void
 }) {
   return (
     <div className="flex flex-col gap-2.5 mt-2">
@@ -148,6 +153,14 @@ function SavePanel({ onExportBundle, onSave, folderAvailable, onDone }: {
             : 'downloads your self-verifying record (folder sync needs Chrome, Edge or Brave)'}
         </span>
       </MenuButton>
+      {onSyncOneDrive && (
+        <MenuButton onClick={() => { onSyncOneDrive(); onDone() }}>
+          {oneDriveAccount ? '☁ Re-sync to OneDrive' : '☁ Sync to OneDrive'}
+          <span className="block text-xs text-stone-400">
+            {oneDriveAccount ? `signed in as ${oneDriveAccount} · syncs as you write` : 'sign in with Microsoft — works on any browser, incl. Firefox & Safari'}
+          </span>
+        </MenuButton>
+      )}
       <MenuButton onClick={onExportBundle ? () => { onExportBundle(); onDone() } : undefined}>
         ⤓ Download a copy<span className="block text-xs text-stone-400">a self-verifying file you can keep or check at /verify</span>
       </MenuButton>

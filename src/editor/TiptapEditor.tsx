@@ -29,6 +29,7 @@ import { ReceiptPanel } from '../components/ReceiptPanel'
 import { SessionRunner } from '../provenance/session'
 import { buildExportBundle, bundleFilename, downloadBundle } from '../provenance/bundle'
 import { folderApiAvailable, grantFolder, getGrantedFolder, mirrorDocument } from '../storage/folder'
+import { oneDriveConfigured, oneDriveAccount, syncToOneDrive } from '../storage/onedrive'
 import { contentHash } from '../provenance/hash'
 import { verifyChain, signingPublicKeyHex } from '../provenance/receipts'
 import type { Snapshot, SignedReceipt, KickEvent } from '../types/document'
@@ -79,6 +80,9 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   // snapshot/period callbacks; the state drives the panel.
   const [folderActive, setFolderActive] = useState(false)
   const folderActiveRef = useRef(false)
+  // OneDrive sync (Microsoft Graph) — cross-browser cloud storage for non-Chromium writers.
+  const [oneDriveAcct, setOneDriveAcct] = useState<string | null>(null)
+  const oneDriveActiveRef = useRef(false)
 
   const [currentParagraphIndex, setCurrentParagraphIndex] = useState(0)
   const [showHints, setShowHints] = useState(true)
@@ -444,12 +448,33 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     else exportBundle()
   }
 
-  // Mirror the document + snapshots + bundle into the writer's granted folder (no-op if none).
+  // Mirror the record to whatever the writer linked — a granted folder (Chromium) and/or OneDrive
+  // (any browser). No-op if neither is active. OneDrive auto-sync is silent (no popup); if the
+  // token has expired it simply skips until the next explicit sync.
   function mirrorIfActive() {
-    if (!folderActiveRef.current) return
+    if (!folderActiveRef.current && !oneDriveActiveRef.current) return
     const docId = docRef.current.id
-    void listSnapshots(docId).then((snaps) => mirrorDocument(docRef.current, snaps)).catch(() => {})
+    void listSnapshots(docId).then((snaps) => {
+      if (folderActiveRef.current) void mirrorDocument(docRef.current, snaps).catch(() => {})
+      if (oneDriveActiveRef.current) void syncToOneDrive(docRef.current, snaps, false).catch(() => {})
+    }).catch(() => {})
   }
+
+  // "Sync to OneDrive" — sign in (popup) on first use, then upload the record; auto-syncs after.
+  async function syncOneDrive() {
+    const docId = docRef.current.id
+    const snaps = await listSnapshots(docId)
+    const ok = await syncToOneDrive(docRef.current, snaps, true)
+    if (!ok) return
+    oneDriveActiveRef.current = true
+    void oneDriveAccount().then(setOneDriveAcct)
+  }
+
+  // Reconnect a prior OneDrive session on load (silent — no popup).
+  useEffect(() => {
+    if (!oneDriveConfigured()) return
+    void oneDriveAccount().then((acc) => { oneDriveActiveRef.current = !!acc; setOneDriveAcct(acc) })
+  }, [])
 
   // "Save to folder" — grant a folder on first use, then mirror. The folder IS the login: point it
   // at a cloud-synced directory and the OS handles cross-device sync. NOTE: showDirectoryPicker /
@@ -625,6 +650,8 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
           onSave={saveRecord}
           folderAvailable={folderApiAvailable()}
           folderActive={folderActive}
+          onSyncOneDrive={oneDriveConfigured() ? syncOneDrive : undefined}
+          oneDriveAccount={oneDriveAcct}
         />
 
         {/* Footer bar. On a phone it docks flush to the bottom (the top of the Safari URL
@@ -682,6 +709,8 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
                 onExportBundle={exportBundle}
                 onSave={saveRecord}
                 folderAvailable={folderApiAvailable()}
+                onSyncOneDrive={oneDriveConfigured() ? syncOneDrive : undefined}
+                oneDriveAccount={oneDriveAcct}
               />
             </div>
             )}
