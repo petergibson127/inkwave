@@ -26,30 +26,25 @@ export function Scroll({
   containerRef?: RefObject<HTMLDivElement>
   phone?: boolean // touch device: paper fills the screen, no background (see isTouchDevice())
 }) {
-  // Fade the background waves out while the page is scrolled FAST (the tiled pattern shimmers
-  // otherwise) and back in when it slows. Toggles `.waves-fast` based on scroll velocity.
+  // Parallax the (fixed) background waves: as the page scrolls, drift them SLOWLY — a gentle
+  // vertical parallax + a soft left/right sway — so the background barely moves while the content
+  // moves fast. rAF-throttled; sets --wave-x/--wave-y that the ::before reads (see styles/index.css).
   const surfaceRef = useRef<HTMLDivElement>(null)
   const sheetRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    let lastY = window.scrollY
-    let lastT = performance.now()
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const onScroll = () => {
+    const el = surfaceRef.current
+    if (!el) return
+    let raf = 0
+    const apply = () => {
+      raf = 0
       const y = window.scrollY
-      const t = performance.now()
-      const v = Math.abs(y - lastY) / Math.max(1, t - lastT) // px per ms
-      lastY = y
-      lastT = t
-      const el = surfaceRef.current
-      if (!el) return
-      if (v > 0.9) {
-        el.classList.add('waves-fast')
-        clearTimeout(timer)
-        timer = setTimeout(() => el.classList.remove('waves-fast'), 180) // fade back in once it slows
-      }
+      el.style.setProperty('--wave-y', `${(y * 0.12).toFixed(1)}px`) // slow vertical parallax
+      el.style.setProperty('--wave-x', `${(y * 0.06).toFixed(1)}px`) // gentle horizontal sway
     }
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(apply) }
+    apply()
     window.addEventListener('scroll', onScroll, { passive: true })
-    return () => { window.removeEventListener('scroll', onScroll); clearTimeout(timer) }
+    return () => { window.removeEventListener('scroll', onScroll); if (raf) cancelAnimationFrame(raf) }
   }, [])
 
   return (
