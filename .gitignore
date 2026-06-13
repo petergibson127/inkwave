@@ -13,3 +13,6 @@ dist-ssr
 # React Router framework generated types
 .react-router/
 /build/
+
+# Internal security audit — keep out of the repo (git add -f to commit deliberately)
+PROVENANCE-SECURITY-AUDIT.md
