@@ -1,5 +1,12 @@
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
 
+// True on touch phones/tablets (coarse pointer, no hover). Device-based — does NOT change with
+// browser zoom — so it's the right signal for "phone vs desktop" layout (margins, background).
+export function isTouchDevice(): boolean {
+  return typeof window !== 'undefined'
+    && window.matchMedia?.('(pointer: coarse) and (hover: none)')?.matches === true
+}
+
 // The scroll "paper" chrome — the white page surface and the parchment column with its drop
 // shadow. Shared by BOTH the live editor (TiptapEditor) and the prerendered/loading shell
 // (EditorShell) so the static landing page is a direct visual function of the same components
@@ -12,10 +19,12 @@ export function Scroll({
   children,
   paperRef,
   containerRef,
+  phone = false,
 }: {
   children: ReactNode
   paperRef?: RefObject<HTMLDivElement>
   containerRef?: RefObject<HTMLDivElement>
+  phone?: boolean // touch device: paper fills the screen, no background (see isTouchDevice())
 }) {
   // Fade the background waves out while the page is scrolled FAST (the tiled pattern shimmers
   // otherwise) and back in when it slows. Toggles `.waves-fast` based on scroll velocity.
@@ -43,24 +52,25 @@ export function Scroll({
   }, [])
 
   return (
-    <div ref={surfaceRef} className="inkwave-editor-surface">
-      {/* Parchment column — slightly wider than the text measure */}
+    <div ref={surfaceRef} className={`inkwave-editor-surface${phone ? ' is-phone' : ''}`}>
+      {/* Parchment column. Desktop: a floating page (max-width + shadow + background gap). Phone:
+          fills the screen edge-to-edge, no shadow. */}
       <div
         ref={paperRef}
-        className="mx-auto w-full max-w-[600px] md:max-w-[780px]"
+        className={`mx-auto w-full ${phone ? 'max-w-full' : 'max-w-[780px]'}`}
         style={{
           // box-shadow (not filter: drop-shadow) so the absolutely-positioned cycle card
           // rendered inside doesn't feed its pixels into the shadow — drop-shadow re-rasterises
           // the whole parchment on every reel frame.
-          borderRadius: '8px',
-          boxShadow: '0 8px 32px rgba(80,50,10,0.22), 0 2px 6px rgba(80,50,10,0.18)',
+          borderRadius: phone ? 0 : '8px',
+          boxShadow: phone ? 'none' : '0 8px 32px rgba(80,50,10,0.22), 0 2px 6px rgba(80,50,10,0.18)',
         }}
       >
-        {/* Parchment paper body — a clean rounded rectangle now (both wooden rollers removed).
-            This is the surface the vectorised torn-paper edge will eventually replace. */}
-        {/* px-2 on mobile; thicker side margins on desktop (md:px-16) for roomier margins */}
-        <div className="scroll-paper relative px-2 md:px-16 pt-8 pb-24" style={{ borderRadius: '8px' }}>
-          <div className="mx-auto w-full max-w-[560px] md:max-w-[720px] relative" ref={containerRef}>
+        {/* Paper body. The side padding is the text margin: a roomy fixed margin on DESKTOP (driven
+            by device type, not the viewport breakpoint, so browser zoom never collapses it); a slim
+            one on phones where screen real estate is tight. */}
+        <div className={`scroll-paper relative pt-8 pb-24 ${phone ? 'px-4' : 'px-16'}`} style={{ borderRadius: phone ? 0 : '8px' }}>
+          <div className={`mx-auto w-full relative ${phone ? 'max-w-full' : 'max-w-[720px]'}`} ref={containerRef}>
             {children}
           </div>
         </div>

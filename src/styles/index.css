@@ -48,6 +48,15 @@
   }
   .inkwave-editor-surface.waves-fast::before { opacity: 0; }
 
+  /* On a phone: just the paper, no background. Drop the aqua + waves and the surface padding so the
+     parchment fills the screen edge-to-edge (driven by device type, not viewport width, so zoom
+     doesn't change it). */
+  .inkwave-editor-surface.is-phone {
+    background-color: #f7f2e8;
+    padding: 0 0 8rem;
+  }
+  .inkwave-editor-surface.is-phone::before { display: none; }
+
   /* Parchment paper texture for the scroll body (the page the text sits on) */
   .scroll-paper {
     background-color: #f7f2e8;

@@ -12,7 +12,7 @@ import { RedHighlightExtension, SCAS_HINT_META } from './extensions/RedHighlight
 import type { HintState } from './extensions/RedHighlightExtension'
 import { REFLOW_OPEN_MS, type LineRange, type SlideRange } from './suggestions/ThesaurusPopover/popoverConstants'
 import { ScasSlotMark } from './extensions/ScasSlotMark'
-import { Scroll } from './Scroll'
+import { Scroll, isTouchDevice } from './Scroll'
 import { ThesaurusPopover } from './suggestions/ThesaurusPopover'
 import { CaretGutter } from './CaretGutter'
 import { CycleHintPanel } from './suggestions/CycleHintPanel'
@@ -96,6 +96,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   const [fileName, setFileName] = useState<string | null>(null) // linked local save file name (Chromium)
   const [lastFileSave, setLastFileSave] = useState<number | null>(null)
   const zoom = useZoomScale() // counter browser zoom so the toolbar stays ~100%
+  const [oneDriveUrl, setOneDriveUrl] = useState<string | null>(null) // synced file's webUrl (open in folder)
 
   const [currentParagraphIndex, setCurrentParagraphIndex] = useState(0)
   const [showHints, setShowHints] = useState(true)
@@ -481,7 +482,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     oneDriveLastWriteRef.current = Date.now()
     void listSnapshots(docRef.current.id)
       .then((snaps) => syncToOneDrive(docRef.current, snaps))
-      .then((r) => { if (r.ok) setLastSync(Date.now()) })
+      .then((r) => { if (r.ok) { setLastSync(Date.now()); setOneDriveUrl(r.webUrl) } })
       .catch(() => {})
   }
   function scheduleOneDriveSync() {
@@ -502,6 +503,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
       oneDriveActiveRef.current = true
       setOneDriveAcct(acct)
       setLastSync(Date.now())
+      setOneDriveUrl(r.webUrl)
       oneDriveLastWriteRef.current = Date.now()
     } else {
       // Signed in but the token/scope isn't valid (e.g. the new Files.ReadWrite consent) → re-consent.
@@ -532,7 +534,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
         clearOneDriveSyncPending()
         void listSnapshots(docRef.current.id)
           .then((s) => syncToOneDrive(docRef.current, s))
-          .then((r) => { if (r.ok) setLastSync(Date.now()) })
+          .then((r) => { if (r.ok) { setLastSync(Date.now()); setOneDriveUrl(r.webUrl) } })
       }
     })
   }, [])
@@ -662,8 +664,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
 
   // Hide the toolbar only on touch-only devices (phones/tablets — they have no hover)
   // while the keyboard is up. Touchscreen laptops keep it (they report hover via trackpad).
-  const isTouch = typeof window !== 'undefined'
-    && window.matchMedia?.('(pointer: coarse) and (hover: none)')?.matches === true
+  const isTouch = isTouchDevice()
 
   // A button-opened style bar auto-closes after π seconds of inactivity; each style
   // interaction (via onActivity) restarts the timer. Bars shown because text is
@@ -691,7 +692,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   return (
     <ComplianceContext.Provider value={compliance}>
       <div>
-        <Scroll paperRef={paperRef} containerRef={containerRef}>
+        <Scroll paperRef={paperRef} containerRef={containerRef} phone={isTouch}>
           <EditorContent editor={editor} />
           {editor && (
             <CaretGutter editor={editor} containerEl={containerRef as RefObject<HTMLDivElement>} side="left" />
@@ -745,6 +746,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
               path={oneDrivePath(doc)}
               lastSync={lastSync}
               tooltip={`OneDrive: ${oneDriveAcct}`}
+              webUrl={oneDriveUrl}
               onChangeFolder={chooseOneDriveFolder}
               onClick={lastSync ? undefined : syncOneDrive}
             />

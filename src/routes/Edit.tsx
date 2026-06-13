@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { TiptapEditor } from '../editor/TiptapEditor'
-import { Scroll, EmptyEditorSurface } from '../editor/Scroll'
+import { Scroll, EmptyEditorSurface, isTouchDevice } from '../editor/Scroll'
 import type { InkwaveDocument } from '../types/document'
 import { loadDocument, emptyTiptapDoc } from '../storage/opfs'
 import { listMeta } from '../storage/indexeddb'
@@ -84,7 +84,7 @@ export function Edit() {
   // real editor mounts in its place with no visual jump.
   if (!doc) {
     return (
-      <Scroll>
+      <Scroll phone={isTouchDevice()}>
         <EmptyEditorSurface />
       </Scroll>
     )

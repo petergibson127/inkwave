@@ -49,6 +49,10 @@ const devApi: PluginOption = {
 
 export default defineConfig({
   plugins: [devApi, reactRouter(), tsconfigPaths()],
+  // A unique id per build. The service worker is registered as /sw.js?v=<id> and names its cache
+  // after it, so EVERY deploy looks like an SW update → old caches purged + tabs reloaded once →
+  // changes always show up, with no manual "unregister".
+  define: { __BUILD_ID__: JSON.stringify(Date.now().toString(36)) },
   server: {
     host: true, // bind 0.0.0.0 so the WSL2 dev server is reachable from the Windows browser
   },

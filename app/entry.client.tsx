@@ -3,7 +3,7 @@ import { hydrateRoot } from 'react-dom/client'
 import { HydratedRouter } from 'react-router/dom'
 
 // Build marker — confirms the live build in the console (helps catch stale-cache situations).
-console.log('%c[inkwave] build: crisp-snap-r37', 'color:#5c2d8a;font-weight:bold')
+console.log(`%c[inkwave] build: ${__BUILD_ID__}`, 'color:#5c2d8a;font-weight:bold')
 
 // Wrap the app in Clerk ONLY when configured (paid-tier auth, M6). Dynamic import keeps Clerk out
 // of the bundle entirely when unconfigured, and entry.client is client-only so it never touches
@@ -29,7 +29,8 @@ void bootstrap()
 if (import.meta.env.PROD) {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js').catch((err) => {
+      // Versioned URL: a new build ⇒ a "new" SW script ⇒ update → cache purge + one-time reload.
+      navigator.serviceWorker.register(`/sw.js?v=${__BUILD_ID__}`).catch((err) => {
         console.warn('[inkwave] SW registration failed:', err)
       })
     })

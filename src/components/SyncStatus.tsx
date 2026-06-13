@@ -19,19 +19,19 @@ function relativeTime(t: number): string {
 }
 
 export function SyncStatus({
-  label, synced, path, lastSync, tooltip, onChangeFolder, onClick,
+  label, synced, path, lastSync, tooltip, webUrl, onChangeFolder, onClick,
 }: {
   label: string
   synced: boolean
   path?: string | null
   lastSync?: number | null
   tooltip?: string
+  webUrl?: string | null // when present, "Open in folder" opens it (the file in OneDrive)
   onChangeFolder?: () => void
   onClick?: () => void // pill action when not synced (connect / sync now)
 }) {
   const [, tick] = useState(0)
   const [open, setOpen] = useState(false)
-  const [copied, setCopied] = useState(false)
   const zoom = useZoomScale()
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -39,11 +39,6 @@ export function SyncStatus({
     const id = setInterval(() => tick((n) => n + 1), 5000)
     return () => clearInterval(id)
   }, [])
-
-  function copyPath() {
-    if (!path) return
-    void navigator.clipboard?.writeText(path).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) }).catch(() => {})
-  }
 
   return (
     <div
@@ -64,10 +59,10 @@ export function SyncStatus({
             </div>
           )}
           <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
-            {path && (
-              <button type="button" onClick={copyPath} className="underline hover:text-[#5c2d8a]" style={{ color: INK }}>
-                {copied ? '✓ copied' : 'Copy path'}
-              </button>
+            {webUrl && (
+              <a href={webUrl} target="_blank" rel="noreferrer" className="underline hover:text-[#5c2d8a]" style={{ color: INK }}>
+                Open in folder ↗
+              </a>
             )}
             {onChangeFolder && (
               <button type="button" onClick={onChangeFolder} className="underline hover:text-[#5c2d8a]" style={{ color: INK }}>

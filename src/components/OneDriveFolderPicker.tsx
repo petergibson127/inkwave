@@ -57,10 +57,11 @@ export function OneDriveFolderPicker({ onPick, onClose }: { onPick: (folder: One
           ))}
         </div>
 
-        {/* Quick access — only at the root, to jump straight to common folders. */}
+        {/* Common OneDrive folders (Documents, Photos…). NB: Windows Explorer's "Quick access"
+            pins are a local shell feature with no web/Graph API — these are OneDrive's own folders. */}
         {crumbs.length === 0 && quick.length > 0 && (
           <div className="mb-2">
-            <div className="text-[11px] uppercase tracking-wide text-stone-400 mb-1">Quick access</div>
+            <div className="text-[11px] uppercase tracking-wide text-stone-400 mb-1">Common folders</div>
             <div className="flex flex-wrap gap-1.5">
               {quick.map((f) => (
                 <button key={f.id} type="button" onClick={() => setCrumbs([{ id: f.id, name: f.name }])}

@@ -15,11 +15,13 @@ export function useZoomScale(): number {
     const baseline = window.devicePixelRatio || 1
     const update = () => {
       const zoom = (window.devicePixelRatio || 1) / baseline
-      // Counter the zoom (scale by 1/zoom), but ignore tiny deltas (jitter) and clamp so the chrome
-      // never becomes unusably small or large.
-      if (Math.abs(zoom - 1) < 0.03) { setScale(1); return }
-      const s = Math.min(1.6, Math.max(0.6, 1 / zoom))
-      setScale(Number(s.toFixed(3)))
+      // Counter the zoom by scaling 1/zoom — EXACT compensation (page ×zoom, chrome ×1/zoom = 1).
+      // Tiny deadzone so we apply NO transform at ~100% (the common case). Clamp covers the whole
+      // browser zoom range (25%–500% ⇒ 1/zoom ∈ [0.2, 4]); the previous narrow clamp is what made
+      // the chrome "whoosh" once you zoomed past it.
+      if (Math.abs(zoom - 1) < 0.02) { setScale(1); return }
+      const s = Math.min(4, Math.max(0.2, 1 / zoom))
+      setScale(Number(s.toFixed(4)))
     }
     update()
     window.addEventListener('resize', update) // DPR changes fire a resize event

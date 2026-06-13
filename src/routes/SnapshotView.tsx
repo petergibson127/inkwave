@@ -5,7 +5,7 @@ import { listSnapshots } from '../provenance/snapshots'
 import { loadDocument } from '../storage/opfs'
 import { pmToText } from '../provenance/bundle'
 import { diffWords, diffStats } from '../provenance/diff'
-import { Scroll } from '../editor/Scroll'
+import { Scroll, isTouchDevice } from '../editor/Scroll'
 import { DocView } from '../components/DocView'
 
 const INK = '#5c2d8a'
@@ -73,7 +73,7 @@ export function SnapshotView() {
       )}
 
       {status === 'ready' && snapshot && (
-        <Scroll>
+        <Scroll phone={isTouchDevice()}>
           {showDiff && ops ? (
             <div>
               <p className="text-xs text-stone-400 mb-3">

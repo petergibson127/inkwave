@@ -8,8 +8,15 @@
 // SELF-HEAL: when a NEW version activates (an update, not a first install), it purges old caches AND
 // force-reloads every open tab once. That recovers any browser stranded on a stale shell by an
 // earlier (cache-first) worker, with no manual "clear site data" needed. Fresh first installs are
-// NOT reloaded (nothing to recover). Bump CACHE on any change so the update path fires.
-const CACHE = 'inkwave-v3'
+// NOT reloaded (nothing to recover).
+//
+// The cache name is derived from the ?v=<build-id> the worker was registered with (see
+// entry.client.tsx). Every deploy ⇒ a new build id ⇒ a new cache name ⇒ the update/self-heal path
+// fires automatically — no manual bump, no "unregister" needed to see changes.
+const VERSION = (() => {
+  try { return new URL(self.location.href).searchParams.get('v') || 'v0' } catch { return 'v0' }
+})()
+const CACHE = `inkwave-${VERSION}`
 
 self.addEventListener('install', () => {
   // Don't pre-cache '/': it must come from the network so it references the current asset hashes.
