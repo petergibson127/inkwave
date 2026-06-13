@@ -1,18 +1,25 @@
-import { startTransition, StrictMode } from 'react'
+import { startTransition, StrictMode, type ReactNode } from 'react'
 import { hydrateRoot } from 'react-dom/client'
 import { HydratedRouter } from 'react-router/dom'
 
 // Build marker — confirms the live build in the console (helps catch stale-cache situations).
 console.log('%c[inkwave] build: crisp-snap-r37', 'color:#5c2d8a;font-weight:bold')
 
-startTransition(() => {
-  hydrateRoot(
-    document,
-    <StrictMode>
-      <HydratedRouter />
-    </StrictMode>,
-  )
-})
+// Wrap the app in Clerk ONLY when configured (paid-tier auth, M6). Dynamic import keeps Clerk out
+// of the bundle entirely when unconfigured, and entry.client is client-only so it never touches
+// the prerender/SSR build. The publishable key is public (safe in the client).
+async function bootstrap() {
+  const pk = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined
+  let tree: ReactNode = <HydratedRouter />
+  if (pk) {
+    const { ClerkProvider } = await import('@clerk/clerk-react')
+    tree = <ClerkProvider publishableKey={pk}>{tree}</ClerkProvider>
+  }
+  startTransition(() => {
+    hydrateRoot(document, <StrictMode>{tree}</StrictMode>)
+  })
+}
+void bootstrap()
 
 // Register the service worker for offline support and PWA install — PRODUCTION ONLY.
 // In dev a cache-first SW poisons the dev server: it serves a stale cached app shell and JS,
