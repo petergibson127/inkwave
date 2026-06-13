@@ -11,18 +11,25 @@ import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
 
 const KEY = new PluginKey<DecorationSet>('pagination')
-const GAP = 40 // px of aqua between sheets
+const GAP = 56 // px of aqua between sheets
 
 export interface PaginationOptions { enabled: boolean }
 
-function gapEl(heightPx: number, pageNum: number): HTMLElement {
+// The widget is `total` tall: its TOP part (transparent) is the page-above's bottom margin — the
+// continuous parchment shows through, so the page fills to A4 — and a BOTTOM band of `GAP` px shows
+// the aqua/waves background with rounded, shadowed sheet edges + the centred page number.
+function gapEl(totalPx: number, pageNum: number): HTMLElement {
   const el = document.createElement('div')
   el.className = 'inkwave-page-gap'
-  el.style.height = `${Math.round(heightPx)}px`
+  el.style.height = `${Math.round(totalPx)}px`
   el.contentEditable = 'false'
+  const band = document.createElement('div')
+  band.className = 'inkwave-page-gap-band'
+  band.style.height = `${GAP}px`
   const span = document.createElement('span')
   span.textContent = String(pageNum)
-  el.appendChild(span)
+  band.appendChild(span)
+  el.appendChild(band)
   return el
 }
 
@@ -62,7 +69,7 @@ function compute(view: EditorView, pageH: number): { set: DecorationSet; sig: st
   for (let i = 0; i < n; i++) {
     const occ = i < n - 1 ? tops[i + 1] - tops[i] : heights[i] // flow occupancy (incl. margin)
     if (i > 0 && used + occ > pageH && childPos[i] != null) {
-      const gh = Math.max(GAP, pageH - used + GAP) // fill the rest of this page + the gap
+      const gh = Math.max(GAP, pageH - used) + GAP // parchment fill to A4 bottom + the aqua gap
       const at = childPos[i]
       const num = pageNo
       decos.push(Decoration.widget(at, () => gapEl(gh, num), { side: -1, key: `gap-${num}` }))
