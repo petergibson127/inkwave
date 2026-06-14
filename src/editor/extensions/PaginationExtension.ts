@@ -23,11 +23,15 @@ export interface PaginationOptions { enabled: boolean }
 // transparent gap is and lay the parchment sheet panels around it. No visible parts of its own —
 // the panels paint the parchment, the page number is a footer inside each panel.
 function gapEl(botMargin: number, topMargin: number): HTMLElement {
-  const el = document.createElement('div')
+  // SPAN, not div: a page break can land mid-paragraph, and a block-level <div> is invalid as a
+  // child of <p> — the browser then reparents/splits the paragraph in the rendered DOM, scrambling
+  // caret placement (the caret jumps across the gap, edits land on the wrong page). A <span> is valid
+  // phrasing content inside <p>; CSS gives it `display:block` so it still reserves the vertical gap.
+  const el = document.createElement('span')
   el.className = 'inkwave-page-gap'
   el.style.height = `${Math.round(botMargin + GAP + topMargin)}px`
   el.contentEditable = 'false'
-  const band = document.createElement('div')
+  const band = document.createElement('span')
   band.className = 'inkwave-page-gap-band'
   band.style.top = `${Math.round(botMargin)}px`
   band.style.height = `${GAP}px`
@@ -96,7 +100,15 @@ function compute(view: EditorView, pageH: number): { set: DecorationSet; sig: st
       // Parchment left below the last line on this page (its bottom margin), at least MARGIN_BOTTOM.
       const botMargin = Math.max(MARGIN_BOTTOM, pageH - MARGIN_TOP - used)
       const at = lines[i].pos
-      decos.push(Decoration.widget(at, () => gapEl(botMargin, MARGIN_TOP), { side: -1, key: `gap-${pageNo}-${at}` }))
+      // ignoreSelection: the gap is a TALL block widget sitting mid-paragraph; without this,
+      // ProseMirror folds its height into cursor/selection coordinate mapping, so a click at the end
+      // of the page-above jumps the caret past the gap to the start of the next page (and edits then
+      // land on the wrong page, which read as "deletions don't reflow"). Ignoring it for selection
+      // keeps the caret on the text it belongs to. stopEvent: clicks on the gap aren't editor input.
+      // side:-1 — the gap is one tall block widget; with side:1 the cursor at the break renders
+      // INSIDE the gap (stuck between pages). side:-1 keeps the cursor on real text (it lands at the
+      // start of the next page at the exact boundary — acceptable; editing/reflow work).
+      decos.push(Decoration.widget(at, () => gapEl(botMargin, MARGIN_TOP), { side: -1, ignoreSelection: true, stopEvent: () => true, key: `gap-${pageNo}-${at}` }))
       sig.push(`${at}:${Math.round(botMargin)}`)
       pageNo++
       used = 0
@@ -127,7 +139,7 @@ export const PaginationExtension = Extension.create<PaginationOptions>({
           if (!enabled) return {}
           let raf = 0
           let paintRaf = 0
-          let lastSig = ''
+          let lastInputSig = '' // doc size + page height — only re-measure when these change
           let sheet: HTMLElement | null = null
           let layer: HTMLElement | null = null
           let observed = false
@@ -196,19 +208,47 @@ export const PaginationExtension = Extension.create<PaginationOptions>({
               sheet.classList.add('inkwave-gapped')
               sheet.style.paddingTop = `${MARGIN_TOP}px` // page-1 top margin matches the rest
             }
-            const { set, sig } = compute(view, pageH)
-            if (sig !== lastSig) { lastSig = sig; view.dispatch(view.state.tr.setMeta(KEY, set)) }
+            // Only re-measure when something that affects layout changed (text edit → doc size; zoom/
+            // resize → pageH). Our own setMeta dispatches below don't change these, so they can't loop.
+            const inputSig = `${view.state.doc.content.size}:${Math.round(pageH)}`
+            if (inputSig === lastInputSig) { schedulePaint(); return }
+            lastInputSig = inputSig
+
+            // The gap widgets are display:block, so they FORCE line breaks — which means a word can't
+            // wrap back across a page boundary, and measuring the line layout with them present shows
+            // the forced break, not the natural wrap (so deletions never reflowed back). Fix: clear
+            // the gaps first so the DOM reflows to its NATURAL wrapping, measure THAT, then re-add the
+            // gaps. All synchronous within this one rAF tick, so the cleared state never paints (no
+            // flicker) — getClientRects forces layout, not paint.
+            const cur = KEY.getState(view.state)
+            if (cur && cur !== DecorationSet.empty) {
+              view.dispatch(view.state.tr.setMeta(KEY, DecorationSet.empty).setMeta('addToHistory', false))
+            }
+            const { set } = compute(view, pageH)
+            view.dispatch(view.state.tr.setMeta(KEY, set).setMeta('addToHistory', false))
             // Re-measure & reposition the sheet panels after the decorations land (DOM settled).
             schedulePaint()
           }
           const schedule = () => { if (!raf) raf = requestAnimationFrame(recompute) }
           schedule()
+          // Web fonts (EB Garamond) load AFTER first paint and reflow the text, moving every line —
+          // but a font swap changes neither the doc size nor the page width, so the inputSig guard
+          // would skip re-measuring (the break sits wrong until an edit nudges it). Force a fresh
+          // measure once fonts are ready (and on any later font load).
+          let destroyed = false
+          const fontCb = () => { if (!destroyed) { lastInputSig = ''; schedule() } }
+          if (typeof document !== 'undefined' && document.fonts) {
+            document.fonts.ready.then(fontCb).catch(() => {})
+            document.fonts.addEventListener?.('loadingdone', fontCb)
+          }
           return {
             update: schedule,
             destroy() {
+              destroyed = true
               ro?.disconnect()
               if (raf) cancelAnimationFrame(raf)
               if (paintRaf) cancelAnimationFrame(paintRaf)
+              document.fonts?.removeEventListener?.('loadingdone', fontCb)
               layer?.remove()
               sheet?.classList.remove('inkwave-gapped')
               if (sheet) sheet.style.paddingTop = ''
