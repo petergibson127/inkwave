@@ -9,8 +9,9 @@
 // Wiring this runner into the editor's live loop (driving the SCAS controller off `current.lemmas`
 // and calling closePeriod on the resample timer) is the remaining M3 integration step.
 
-import type { KickEvent, SignedReceipt } from '../types/document'
+import type { KickEvent, SignedReceipt, KeylogBin } from '../types/document'
 import { kicksHash, genesisPrevHash, chainHash, bitmaskToLemmas } from './receipts'
+import { cadenceDigest } from './cadence'
 
 interface IssuedSet {
   setVersion: number
@@ -22,11 +23,11 @@ export interface CurrentSet extends IssuedSet {
   lemmas: Set<string> // decoded off-limits lemmas for the controller's membership test
 }
 
-async function postJson<T>(url: string, body: unknown): Promise<T | null> {
+async function postJson<T>(url: string, body: unknown, authToken?: string): Promise<T | null> {
   try {
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
       body: JSON.stringify(body),
     })
     if (!res.ok) return null
@@ -71,8 +72,12 @@ export class SessionRunner {
    * period, the kicks resolved this period) and advance to the next server-issued set. Returns the
    * new receipt, or null if the service is unreachable (the period stays open, retried next tick).
    */
-  async closePeriod(contentHash: string, kicks: KickEvent[], cadenceDigest?: string): Promise<SignedReceipt | null> {
+  async closePeriod(contentHash: string, kicks: KickEvent[], cadence?: KeylogBin[], authToken?: string): Promise<SignedReceipt | null> {
     const kh = await kicksHash(kicks)
+    // Paid (Insignia) tier: the server signs only the DIGEST (it never sees the bins); the writer
+    // keeps the bins on the receipt for later, at-their-discretion analysis. Empty cadence → no
+    // digest. When a digest is sent, the authToken (Clerk) lets the server enforce the subscription.
+    const digest = cadence && cadence.length ? await cadenceDigest(cadence) : undefined
     const resp = await postJson<{
       serverTime: string
       signature: string
@@ -87,8 +92,8 @@ export class SessionRunner {
       contentHash,
       setVersion: this.current.setVersion,
       kicksHash: kh,
-      ...(cadenceDigest ? { cadenceDigest } : {}),
-    })
+      ...(digest ? { cadenceDigest: digest } : {}),
+    }, digest ? authToken : undefined)
     if (!resp) return null
 
     const receipt: SignedReceipt = {
@@ -103,7 +108,7 @@ export class SessionRunner {
       serverTime: resp.serverTime,
       signature: resp.signature,
       lockedSet: resp.lockedSet,
-      ...(cadenceDigest ? { cadenceDigest } : {}),
+      ...(digest ? { cadenceDigest: digest, cadence } : {}),
     }
     this.receipts.push(receipt)
     this.prevHash = await chainHash(receipt)

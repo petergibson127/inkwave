@@ -10,9 +10,9 @@ export default async function handler(req, res) {
   try {
     const body = typeof req.body === 'object' && req.body ? req.body : JSON.parse(req.body || '{}')
     res.setHeader('content-type', 'application/json')
-    res.end(JSON.stringify(await handleSign(body)))
+    res.end(JSON.stringify(await handleSign(body, req.headers?.authorization)))
   } catch (err) {
-    res.statusCode = err?.message === 'bad request' ? 400 : 500
-    res.end(JSON.stringify({ error: 'sign failed' }))
+    res.statusCode = err?.message === 'bad request' ? 400 : err?.message === 'subscription required' ? 402 : 500
+    res.end(JSON.stringify({ error: err?.message === 'subscription required' ? 'subscription required' : 'sign failed' }))
   }
 }

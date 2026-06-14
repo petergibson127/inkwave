@@ -12,6 +12,7 @@ export function ReceiptPanel({
   chainStatus,
   onVerifyChain,
   wordCount,
+  compact,
 }: {
   snapshots: Snapshot[]
   onCheckBitcoin?: () => void
@@ -19,6 +20,7 @@ export function ReceiptPanel({
   chainStatus?: string | null
   onVerifyChain?: () => void
   wordCount?: number
+  compact?: boolean // mobile: a small ◈ circle instead of the text pill
 }) {
   const [open, setOpen] = useState(false)
   const zoom = useZoomScale()
@@ -44,23 +46,23 @@ export function ReceiptPanel({
       {/* Anchored at the very corner with the inset as PADDING (inside the scaled box) so zoom
           compensation keeps both size AND position constant — no drift. */}
       <div
-        className="fixed bottom-0 left-0 z-40 font-serif text-sm select-none"
+        className="fixed bottom-0 left-0 z-40 font-serif text-sm select-none flex flex-col-reverse items-start"
         style={{ color: '#5c2d8a', padding: '1rem', transform: zoom !== 1 ? `scale(${zoom})` : undefined, transformOrigin: 'bottom left' }}
       >
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className="px-2.5 py-1 bg-white"
-          style={{ border: '1px solid rgba(92, 45, 138, 0.75)', borderRadius: 12 }}
+          className={compact ? 'flex items-center justify-center w-9 h-9 bg-white text-lg' : 'bg-white leading-tight text-left px-2.5 py-1 max-w-[7.5rem] max-lg:max-w-[7.2rem]'}
+          style={{ border: '1px solid rgba(92, 45, 138, 0.75)', borderRadius: compact ? 9999 : 12 }}
           title="Provenance record (held by you)"
         >
-          ◈ {n} snapshot{n === 1 ? '' : 's'}{receiptCount > 0 ? ` · ${receiptCount} receipt${receiptCount === 1 ? '' : 's'}` : ''}
+          {compact ? '◈' : <>◈ {n} snapshot{n === 1 ? '' : 's'}{receiptCount > 0 ? ` · ${receiptCount} receipt${receiptCount === 1 ? '' : 's'}` : ''}</>}
         </button>
 
         {panelOpen && (
           <div
-            className="mt-1.5 bg-white overflow-auto"
-            style={{ border: '1px solid rgba(92, 45, 138, 0.4)', borderRadius: 10, maxHeight: '40vh', width: 150 }}
+            className="mb-1.5 bg-white overflow-auto w-[150px] max-lg:w-[120px]"
+            style={{ border: '1px solid rgba(92, 45, 138, 0.4)', borderRadius: 10, maxHeight: '40vh' }}
           >
             {typeof wordCount === 'number' && (
               <div className="px-2.5 py-1.5 text-stone-500 tabular-nums" style={{ borderBottom: '1px solid rgba(92, 45, 138, 0.12)' }}>

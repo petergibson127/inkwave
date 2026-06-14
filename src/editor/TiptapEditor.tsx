@@ -21,7 +21,6 @@ import { CycleHintPanel } from './suggestions/CycleHintPanel'
 import { prefetchSynonyms } from './suggestions/thesaurus'
 import { LimitSelector } from '../components/LimitSelector'
 import { OptionsMenu } from '../components/OptionsMenu'
-import { AccountControl } from '../components/AccountControl'
 import { StyleBar } from '../components/StyleBar'
 import { GuideMenu } from '../components/GuideMenu'
 import { ComplianceContext, useComplianceProvider } from '../scas/compliance'
@@ -30,6 +29,8 @@ import { normalizeScasState, DEFAULT_SET_SIZE } from '../scas/state'
 import { createSnapshotIfChanged, listSnapshots, stampSnapshot, drainUnstamped, upgradePending } from '../provenance/snapshots'
 import { ReceiptPanel } from '../components/ReceiptPanel'
 import { SessionRunner } from '../provenance/session'
+import { CadenceTap } from '../provenance/cadence'
+import { cadenceTierActive, getClerkToken } from '../auth/entitlement'
 import { buildExportBundle, bundleFilename, downloadBundle } from '../provenance/bundle'
 import { fileSaveAvailable, pickSaveFile, getSaveFileHandle, getSaveFileName, writeBundleToFile, readLocalHeartbeat } from '../storage/folder'
 import { oneDriveConfigured, oneDriveAccount, syncToOneDrive, startOneDriveSignIn, oneDriveSyncPending, clearOneDriveSyncPending, oneDrivePath, setChosenFolder, addRecentFolder, oneDriveFilename, setOneDriveFilename, readRemoteHeartbeat, type OneDriveFolder } from '../storage/onedrive'
@@ -81,6 +82,9 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   // locally-derived S_v — composition degrades visibly rather than blocking writing).
   const sessionRef = useRef<SessionRunner | null>(null)
   const periodKicksRef = useRef<KickEvent[]>([]) // kicks resolved during the current signing period
+  // Insignia (paid) keystroke-cadence tap — accumulates per-0.5s insert/delete COUNTS (never chars).
+  // Created lazily only for active subscribers; stays null (inert) for the free tier.
+  const cadenceTapRef = useRef<CadenceTap | null>(null)
   const [receipts, setReceipts] = useState<SignedReceipt[]>([])
   const [chainStatus, setChainStatus] = useState<string | null>(null)
   // Writer-held folder mirror (M4, Chromium only). Tracked in a ref read by the (non-React)
@@ -209,6 +213,14 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     },
     onTransaction: ({ editor: e, transaction }) => {
       const current = docRef.current
+
+      // ── Insignia (paid): keystroke-cadence tap ───────────────────────────────
+      // Fold this transaction's steps into the current 0.5s cadence bin. Counts only — never chars.
+      // Inert for the free tier (cadenceTierActive() false → tap never created).
+      if (cadenceTierActive()) {
+        if (!cadenceTapRef.current) cadenceTapRef.current = new CadenceTap()
+        cadenceTapRef.current.record(transaction.steps)
+      }
 
       // ── SCAS: drive the engine off the committed words ───────────────────────
       // Only on a real content change (skip the no-op SCAS_HINT_META repaint we dispatch below,
@@ -698,7 +710,15 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
       void (async () => {
         const kicks = periodKicksRef.current
         const cHash = await contentHash(docRef.current.contentJson)
-        const receipt = await runner.closePeriod(cHash, kicks)
+        // Insignia: drain this period's cadence bins + send the Clerk token so the server can gate
+        // the signed digest on an active subscription. Free tier sends neither (cadence undefined).
+        let cadence: ReturnType<CadenceTap['drain']> | undefined
+        let authToken: string | undefined
+        if (cadenceTierActive() && cadenceTapRef.current?.hasData) {
+          cadence = cadenceTapRef.current.drain()
+          authToken = (await getClerkToken()) ?? undefined
+        }
+        const receipt = await runner.closePeriod(cHash, kicks, cadence, authToken)
         if (!receipt) return // offline — keep the kicks buffered, retry next period
         periodKicksRef.current = []
         scasRef.current!.useServerSet(runner.current.lemmas, runner.current.setVersion)
@@ -824,24 +844,28 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
 
         <CycleHintPanel active={cycleActive} showHints={showHints} containerRight={containerRight} />
 
-        <ReceiptPanel
-          snapshots={snapshots}
-          onCheckBitcoin={checkBitcoin}
-          receiptCount={receipts.length}
-          chainStatus={chainStatus}
-          onVerifyChain={verifyReceiptChain}
-          wordCount={wordCount}
-        />
+        {!keyboardUp && (
+          <ReceiptPanel
+            snapshots={snapshots}
+            onCheckBitcoin={checkBitcoin}
+            receiptCount={receipts.length}
+            chainStatus={chainStatus}
+            onVerifyChain={verifyReceiptChain}
+            wordCount={wordCount}
+            compact={isTouch}
+          />
+        )}
 
         {/* One sync indicator. Regular browser (File System Access) → local folder only; Firefox/
-            Safari → OneDrive. The label reads clearly in every state. */}
-        {(() => {
+            Safari → OneDrive. The label reads clearly in every state. Hidden while the phone
+            keyboard is up so it never sits over the writing. */}
+        {!keyboardUp && (() => {
           if (fileSaveAvailable()) {
             // Regular browser → local folder. Honest states so the writer is never misled into
             // thinking it's saving when it isn't:
             if (needsReconnect) {
               return (
-                <SyncStatus
+                <SyncStatus compact={isTouch}
                   label="⚠ Reconnect to keep saving"
                   synced={false}
                   path={fileName}
@@ -851,7 +875,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
               )
             }
             return fileName ? (
-              <SyncStatus
+              <SyncStatus compact={isTouch}
                 label={lastFileSave ? '✓ Synced to folder' : '🗀 Sync pending'}
                 synced={!!lastFileSave}
                 path={fileName}
@@ -861,12 +885,12 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
                 onChangeFolder={saveAsFile}
               />
             ) : (
-              <SyncStatus label="🗀 Save to a folder" synced={false} onClick={() => void saveToFile()} />
+              <SyncStatus compact={isTouch} label="🗀 Save to a folder" synced={false} onClick={() => void saveToFile()} />
             )
           }
           if (!oneDriveConfigured()) return null
           return oneDriveAcct ? (
-            <SyncStatus
+            <SyncStatus compact={isTouch}
               label={lastSync ? '✓ Synced to OneDrive' : '☁ Sync pending'}
               synced={!!lastSync}
               path={oneDrivePath(doc)}
@@ -877,7 +901,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
               onClick={lastSync ? undefined : syncOneDrive}
             />
           ) : (
-            <SyncStatus label="☁ disconnected" synced={false} tooltip="OneDrive — sign in to sync" onClick={syncOneDrive} />
+            <SyncStatus compact={isTouch} label="☁ disconnected" synced={false} tooltip="OneDrive — sign in to sync" onClick={syncOneDrive} />
           )
         })()}
 
@@ -941,7 +965,6 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
                 style
               </button>
               <GuideMenu />
-              <AccountControl />
               <OptionsMenu
                 paperRight={paperRight}
                 onExportBundle={exportBundle}

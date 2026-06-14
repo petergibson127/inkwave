@@ -14,6 +14,7 @@ import { withScasDefaults } from '../scas/state'
 import { openInkwaveFile } from '../storage/openDoc'
 import { gappedPagesEnabled, setGappedPages } from '../editor/pageView'
 import { oneDriveFilename } from '../storage/onedrive'
+import { AccountMenuItems } from './AccountControl'
 import { getSaveFileName } from '../storage/folder'
 import { inkwaveFileName } from '../provenance/bundle'
 
@@ -114,7 +115,6 @@ export function OptionsMenu({
     { label: 'Open Recent', run: () => setModal('recent') },
     { label: 'Save…', run: () => setModal('save') },
     { label: `Gapped pages ${gappedPagesEnabled() ? '✓' : '✗'}`, run: () => { setGappedPages(!gappedPagesEnabled()); window.location.reload() } },
-    { label: 'Sign in', run: () => navigate('/login') },
     { label: 'About', run: () => navigate('/about') },
   ]
   if (import.meta.env.DEV) {
@@ -162,6 +162,7 @@ export function OptionsMenu({
               {it.label}
             </button>
           ))}
+          <AccountMenuItems onClose={() => setMenuOpen(false)} />
         </div>
       )}
 

@@ -20,12 +20,22 @@ import type { ExportBundle } from '../provenance/bundle'
 import type { SignedReceipt, TiptapJSON } from '../types/document'
 import { canonicalize, sha256Hex, bundleHash } from '../provenance/hash'
 import { verifyChain, bitmaskToLemmas, PUBLISHED_SIGNING_PK } from '../provenance/receipts'
+import { cadenceDigest, BIN_MS } from '../provenance/cadence'
+
+// A 0.5 s bin holding more than this many inserted chars (~240 chars/sec) is not human typing — it's
+// a paste. Surfaced honestly; the cadence test is public and cannot carry a guarantee it can't.
+const PASTE_INS_PER_BIN = Math.round((240 * BIN_MS) / 1000)
 
 export interface VerifyReport {
   contentIntegrity: { ok: boolean; checked: number; reason?: string }
   chain: { ok: boolean; sessions: number; verified: number; reason?: string }
   kickConsistency: { ok: boolean; checked: number; reason?: string }
   friction: { kicks: number; contentWords: number; onePerWords: number | null; note: string }
+  // Cadence (paid). `withDigest` counts receipts that committed a signed cadence digest; `revealed`
+  // counts those whose writer-held bins are present (so we can analyse them). `integrityOk` is false
+  // only when revealed bins don't match their signed digest (tamper). Plausibility is surfaced, not
+  // asserted — see the spec ceiling.
+  cadence: { withDigest: number; revealed: number; bins: number; ins: number; del: number; integrityOk: boolean; pasteSuspectBins: number; note: string }
   existence: { snapshots: number; confirmed: number; pending: number; unstamped: number }
   overall: boolean
 }
@@ -99,6 +109,32 @@ function frictionScore(bundle: ExportBundle): VerifyReport['friction'] {
   return { kicks, contentWords, onePerWords, note }
 }
 
+// Cadence (paid): the cadenceDigest is already covered by each receipt's signature (verified in the
+// chain step). Here we (a) confirm any REVEALED bins match that signed digest — so the writer-held
+// bins can't be doctored after the fact — and (b) surface a plausibility read on the revealed bins.
+async function verifyCadence(bundle: ExportBundle): Promise<VerifyReport['cadence']> {
+  let withDigest = 0, revealed = 0, bins = 0, ins = 0, del = 0, pasteSuspectBins = 0
+  let integrityOk = true
+  let mismatch: string | null = null
+  for (const r of bundle.receipts) {
+    if (r.cadenceDigest) withDigest++
+    if (!r.cadence) continue
+    revealed++
+    if ((await cadenceDigest(r.cadence)) !== r.cadenceDigest) { integrityOk = false; mismatch ??= `receipt ${r.counter}` }
+    for (const b of r.cadence) {
+      bins++; ins += b.ins; del += b.del
+      if (b.ins > PASTE_INS_PER_BIN) pasteSuspectBins++
+    }
+  }
+  const note =
+    withDigest === 0 ? 'no cadence recorded (free tier or cadence not enabled)'
+    : revealed === 0 ? `${withDigest} signed cadence digest(s); bins not revealed in this bundle`
+    : !integrityOk ? `cadence bins do not match the signed digest (${mismatch})`
+    : pasteSuspectBins > 0 ? `${pasteSuspectBins} of ${bins} bins exceed human typing speed — likely paste`
+    : `${bins} bins consistent with the signed digest; no paste-speed bins`
+  return { withDigest, revealed, bins, ins, del, integrityOk, pasteSuspectBins, note }
+}
+
 function existenceTally(bundle: ExportBundle): VerifyReport['existence'] {
   let confirmed = 0, pending = 0, unstamped = 0
   for (const s of bundle.snapshots) {
@@ -118,7 +154,10 @@ export async function verifyBundle(bundle: ExportBundle, pubKeyHex: string = PUB
   const chain = await checkChains(bundle, pubKeyHex)
   const kickConsistency = checkKickConsistency(bundle)
   const friction = frictionScore(bundle)
+  const cadence = await verifyCadence(bundle)
   const existence = existenceTally(bundle)
-  const overall = contentIntegrity.ok && chain.ok && kickConsistency.ok
-  return { contentIntegrity, chain, kickConsistency, friction, existence, overall }
+  // Revealed cadence bins that don't match their signed digest are tamper — fail. Absent/unrevealed
+  // cadence never fails a bundle (plausibility is surfaced, not gating).
+  const overall = contentIntegrity.ok && chain.ok && kickConsistency.ok && cadence.integrityOk
+  return { contentIntegrity, chain, kickConsistency, friction, cadence, existence, overall }
 }
