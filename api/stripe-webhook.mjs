@@ -11,7 +11,7 @@ export default async function handler(request) {
   const whsec = process.env.STRIPE_WEBHOOK_SECRET
   if (!key || !whsec) return new Response(JSON.stringify({ error: 'not configured' }), { status: 500 })
 
-  const stripe = new Stripe(key)
+  const stripe = new Stripe(key, { apiVersion: '2024-06-20' })
   const raw = await request.text()
   const sig = request.headers.get('stripe-signature') || ''
   let event

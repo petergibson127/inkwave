@@ -67,13 +67,14 @@ function loadStripe(pk: string): Promise<StripeObj | null> {
 // (PayPal can't embed). × closes it. On completion it polls entitlement and closes itself.
 function InsigniaModal({ onClose }: { onClose: () => void }) {
   const PK = import.meta.env?.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined
-  const [stage, setStage] = useState<'choose' | 'card' | 'done'>('choose')
+  const [done, setDone] = useState(false)
   const [busy, setBusy] = useState(false)
   const cardRef = useRef<HTMLDivElement>(null)
   const checkoutRef = useRef<StripeEmbedded | null>(null)
 
+  // Mount Stripe's embedded Checkout straight away (card + Apple/Google Pay) when the modal opens.
   useEffect(() => {
-    if (stage !== 'card' || !PK) return
+    if (!PK || done) return
     let cancelled = false
     void (async () => {
       const secret = await stripeClientSecret()
@@ -81,18 +82,18 @@ function InsigniaModal({ onClose }: { onClose: () => void }) {
       if (!secret || !stripe || cancelled || !cardRef.current) return
       const checkout = await stripe.initEmbeddedCheckout({
         clientSecret: secret,
-        onComplete: () => { setStage('done'); pollAfterPayment(onClose) },
+        onComplete: () => { setDone(true); pollAfterPayment(onClose) },
       })
       if (cancelled || !cardRef.current) { try { checkout.destroy() } catch { /* noop */ }; return }
       checkoutRef.current = checkout
       checkout.mount(cardRef.current)
     })()
     return () => { cancelled = true; try { checkoutRef.current?.destroy() } catch { /* noop */ } checkoutRef.current = null }
-  }, [stage, PK, onClose])
+  }, [PK, done, onClose])
 
   function payPaypal() {
     // Open the popup SYNCHRONOUSLY (inside the click) so it isn't blocked, then point it at PayPal's
-    // approval URL once we have it. (Opening after the await = blocked by the popup blocker.)
+    // approval URL once we have it. PayPal can't embed, so it's a link out to PayPal's own popup.
     const popup = window.open('about:blank', 'inkwave-pay', 'width=460,height=820')
     setBusy(true)
     void paypalApproveUrl().then((url) => {
@@ -104,27 +105,30 @@ function InsigniaModal({ onClose }: { onClose: () => void }) {
     })
   }
 
-  const btn = 'border border-[#5c2d8a]/40 rounded-md py-2 text-stone-700 hover:bg-[#5c2d8a] hover:text-white transition-colors disabled:opacity-50'
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onMouseDown={onClose}>
       <div className="absolute inset-0 bg-stone-900/20" aria-hidden="true" />
       <div role="dialog" aria-modal="true" aria-label="Insignia" onMouseDown={(e) => e.stopPropagation()}
         className="relative bg-white rounded-xl shadow-xl p-6 w-full max-w-md max-h-[85vh] overflow-auto font-serif">
         <button type="button" aria-label="Close" onClick={onClose}
-          className="absolute top-3 right-3 text-stone-400 hover:text-[#5c2d8a] text-2xl leading-none">×</button>
-        {stage === 'choose' && (
-          <div className="text-center">
-            <h2 className="text-lg text-[#5c2d8a]">Insignia</h2>
-            <p className="text-sm text-stone-500 mb-5">$15 AUD per month</p>
-            <div className="flex flex-col gap-2 max-w-[16rem] mx-auto">
-              <button type="button" className={btn} onClick={() => setStage('card')}>Pay with card</button>
-              <button type="button" className={btn} disabled={busy} onClick={payPaypal}>Pay with PayPal</button>
+          className="absolute top-3 right-3 text-stone-400 hover:text-[#5c2d8a] text-2xl leading-none z-10">×</button>
+        <h2 className="text-lg text-[#5c2d8a] text-center">Insignia</h2>
+        <p className="text-sm text-stone-500 text-center mb-4">$15 AUD per month</p>
+        {done ? (
+          <p className="text-center text-[#5c2d8a] py-10">✓ Payment received — activating Insignia…</p>
+        ) : (
+          <>
+            {PK
+              ? <div ref={cardRef} className="min-h-[18rem]" />
+              : <p className="text-xs text-amber-600 text-center py-6">Card checkout needs VITE_STRIPE_PUBLISHABLE_KEY in .env.</p>}
+            <div className="text-center mt-3">
+              <button type="button" disabled={busy} onClick={payPaypal}
+                className="text-sm text-stone-500 underline hover:text-[#5c2d8a] disabled:opacity-50">
+                or pay with PayPal
+              </button>
             </div>
-            {!PK && <p className="text-xs text-amber-600 mt-4">Card checkout needs VITE_STRIPE_PUBLISHABLE_KEY in .env.</p>}
-          </div>
+          </>
         )}
-        {stage === 'card' && <div ref={cardRef} className="min-h-[20rem]" />}
-        {stage === 'done' && <p className="text-center text-[#5c2d8a] py-10">✓ Payment received — activating Insignia…</p>}
       </div>
     </div>,
     document.body,

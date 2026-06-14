@@ -12,7 +12,9 @@ export async function createStripeCheckout(authorization) {
   const key = process.env.STRIPE_SECRET_KEY
   const price = process.env.STRIPE_PRICE_ID
   if (!key || !price) return { status: 500, body: { error: 'stripe not configured' } }
-  const stripe = new Stripe(key)
+  // Pin a stable API version: the lib's default (2026-05-27) renamed ui_mode 'embedded' and breaks
+  // the standard embedded Checkout that the client's stripe.initEmbeddedCheckout expects.
+  const stripe = new Stripe(key, { apiVersion: '2024-06-20' })
   const session = await stripe.checkout.sessions.create({
     mode: 'subscription',
     ui_mode: 'embedded',
