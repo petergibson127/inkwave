@@ -75,6 +75,8 @@ export function OptionsMenu({
   onSaveAsOneDrive,
   oneDriveAccount,
   onSyncGoogleDrive,
+  onSaveAsGoogleDrive,
+  googleDriveActive,
 }: {
   paperRight: number
   onExportBundle?: () => void
@@ -87,6 +89,8 @@ export function OptionsMenu({
   onSaveAsOneDrive?: () => void
   oneDriveAccount?: string | null
   onSyncGoogleDrive?: () => void
+  onSaveAsGoogleDrive?: () => void
+  googleDriveActive?: boolean
 }) {
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -170,7 +174,7 @@ export function OptionsMenu({
 
       {modal && (
         <Modal title={MODAL_TITLES[modal]} onClose={() => setModal(null)}>
-          {modal === 'save' && <SavePanel onExportBundle={onExportBundle} onSave={onSave} onSaveAs={onSaveAs} folderAvailable={folderAvailable} folderName={folderName} onSyncOneDrive={onSyncOneDrive} onChooseOneDriveFolder={onChooseOneDriveFolder} onSaveAsOneDrive={onSaveAsOneDrive} oneDriveAccount={oneDriveAccount} onSyncGoogleDrive={onSyncGoogleDrive} onDone={() => setModal(null)} />}
+          {modal === 'save' && <SavePanel onExportBundle={onExportBundle} onSave={onSave} onSaveAs={onSaveAs} folderAvailable={folderAvailable} folderName={folderName} onSyncOneDrive={onSyncOneDrive} onChooseOneDriveFolder={onChooseOneDriveFolder} onSaveAsOneDrive={onSaveAsOneDrive} oneDriveAccount={oneDriveAccount} onSyncGoogleDrive={onSyncGoogleDrive} onSaveAsGoogleDrive={onSaveAsGoogleDrive} googleDriveActive={googleDriveActive} onDone={() => setModal(null)} />}
           {modal === 'recent' && <RecentPanel />}
         </Modal>
       )}
@@ -193,9 +197,10 @@ function MenuButton({ onClick, children }: { onClick?: () => void; children: Rea
   )
 }
 
-function SavePanel({ onExportBundle, onSave, onSaveAs, folderAvailable, folderName, onSyncOneDrive, onChooseOneDriveFolder, onSaveAsOneDrive, oneDriveAccount, onSyncGoogleDrive, onDone }: {
+function SavePanel({ onExportBundle, onSave, onSaveAs, folderAvailable, folderName, onSyncOneDrive, onChooseOneDriveFolder, onSaveAsOneDrive, oneDriveAccount, onSyncGoogleDrive, onSaveAsGoogleDrive, googleDriveActive, onDone }: {
   onExportBundle?: () => void; onSave?: () => void; onSaveAs?: () => void; folderAvailable?: boolean; folderName?: string | null
-  onSyncOneDrive?: () => void; onChooseOneDriveFolder?: () => void; onSaveAsOneDrive?: () => void; oneDriveAccount?: string | null; onSyncGoogleDrive?: () => void; onDone: () => void
+  onSyncOneDrive?: () => void; onChooseOneDriveFolder?: () => void; onSaveAsOneDrive?: () => void; oneDriveAccount?: string | null
+  onSyncGoogleDrive?: () => void; onSaveAsGoogleDrive?: () => void; googleDriveActive?: boolean; onDone: () => void
 }) {
   return (
     <div className="flex flex-col gap-2.5 mt-2">
@@ -230,9 +235,14 @@ function SavePanel({ onExportBundle, onSave, onSaveAs, folderAvailable, folderNa
         </MenuButton>
       )}
       {/* Google Drive — the other cross-platform option for Firefox/Safari. */}
-      {!folderAvailable && onSyncGoogleDrive && (
+      {!folderAvailable && onSyncGoogleDrive && !googleDriveActive && (
         <MenuButton onClick={() => { onSyncGoogleDrive(); onDone() }}>
           ▴ Sync to Google Drive<span className="block text-xs text-stone-400">sign in with Google — works in Firefox &amp; Safari</span>
+        </MenuButton>
+      )}
+      {!folderAvailable && googleDriveActive && onSaveAsGoogleDrive && (
+        <MenuButton onClick={() => { onSaveAsGoogleDrive(); onDone() }}>
+          🗋 Save a copy…<span className="block text-xs text-stone-400">save to a new file in Google Drive, then keep that one updated</span>
         </MenuButton>
       )}
       <MenuButton onClick={onExportBundle ? () => { onExportBundle(); onDone() } : undefined}>

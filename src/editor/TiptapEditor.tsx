@@ -34,7 +34,7 @@ import { cadenceTierActive, getClerkToken } from '../auth/entitlement'
 import { buildExportBundle, bundleFilename, downloadBundle } from '../provenance/bundle'
 import { fileSaveAvailable, pickSaveFile, getSaveFileHandle, getSaveFileName, writeBundleToFile, readLocalHeartbeat } from '../storage/folder'
 import { oneDriveConfigured, oneDriveAccount, syncToOneDrive, startOneDriveSignIn, oneDriveSyncPending, clearOneDriveSyncPending, oneDrivePath, setChosenFolder, addRecentFolder, oneDriveFilename, setOneDriveFilename, readRemoteHeartbeat, type OneDriveFolder } from '../storage/onedrive'
-import { googleDriveConfigured, startGoogleDriveSignIn, syncToGoogleDrive } from '../storage/gdrive'
+import { googleDriveConfigured, startGoogleDriveSignIn, syncToGoogleDrive, clearGoogleDriveFile } from '../storage/gdrive'
 import { isOtherDeviceActive } from '../sync/presence'
 import { SyncStatus } from '../components/SyncStatus'
 import { OneDriveFolderPicker } from '../components/OneDriveFolderPicker'
@@ -543,6 +543,8 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     const r = await syncToOneDrive(docRef.current, snaps)
     if (r.ok) {
       oneDriveActiveRef.current = true
+      gdriveActiveRef.current = false // one cloud destination at a time
+      setGdriveActive(false)
       setOneDriveAcct(acct)
       setLastSync(Date.now())
       setOneDriveUrl(r.webUrl)
@@ -562,10 +564,18 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     const r = await syncToGoogleDrive(docRef.current, snaps)
     if (r.ok) {
       gdriveActiveRef.current = true
+      oneDriveActiveRef.current = false // one cloud destination at a time
       setGdriveActive(true)
       setLastGdriveSync(Date.now())
       setGdriveUrl(r.webUrl)
     }
+  }
+
+  // "Save a copy" to Google Drive: forget the current Drive file so a fresh one is created, then sync.
+  async function saveAsGoogleDrive() {
+    clearGoogleDriveFile(docRef.current.id)
+    setGdriveUrl(null)
+    await syncGoogleDrive()
   }
 
   // Choose which OneDrive folder to sync into. Needs a signed-in session; otherwise start sign-in
@@ -1017,6 +1027,8 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
                 onSaveAsOneDrive={saveAsOneDrive}
                 oneDriveAccount={oneDriveAcct}
                 onSyncGoogleDrive={googleDriveConfigured() ? syncGoogleDrive : undefined}
+                onSaveAsGoogleDrive={saveAsGoogleDrive}
+                googleDriveActive={gdriveActive}
               />
             </div>
             )}

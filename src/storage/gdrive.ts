@@ -85,17 +85,29 @@ function setDriveFileId(docId: string, id: string): void {
 
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files'
 
+/** Forget the doc's Drive file id so the next sync creates a NEW file (used by "Save a copy"). */
+export function clearGoogleDriveFile(docId: string): void {
+  try { localStorage.removeItem(fileKey(docId)) } catch { /* private mode */ }
+}
+
+// The CONTAINING folder's URL (so "show in folder" reveals the surrounding files), or the file link
+// as a fallback. drive.file lets us read the parents of files we created.
+function folderUrl(data: { webViewLink?: string; parents?: string[] }): string | null {
+  const parent = data?.parents?.[0]
+  return parent ? `https://drive.google.com/drive/folders/${parent}` : (data?.webViewLink ?? null)
+}
+
 // Update the existing Drive file, or create a new one (multipart: metadata + media). Returns the
-// file's webViewLink (for "open in Drive"). drive.file: we only ever touch files we created.
+// CONTAINING folder's URL (for "show in folder"). drive.file: we only ever touch files we created.
 async function uploadDrive(token: string, docId: string, name: string, content: string): Promise<string | null> {
   const existing = driveFileId(docId)
   if (existing) {
-    const res = await fetch(`${UPLOAD}/${existing}?uploadType=media&fields=id,webViewLink`, {
+    const res = await fetch(`${UPLOAD}/${existing}?uploadType=media&fields=id,webViewLink,parents`, {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'text/plain' },
       body: content,
     })
-    if (res.ok) return ((await res.json()) as { webViewLink?: string }).webViewLink ?? null
+    if (res.ok) return folderUrl(await res.json())
     if (res.status !== 404) throw new Error(`Drive update failed (${res.status})`)
     // 404 → the file was deleted in Drive; fall through and create a fresh one.
   }
@@ -103,15 +115,15 @@ async function uploadDrive(token: string, docId: string, name: string, content: 
   const body =
     `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ name })}\r\n` +
     `--${boundary}\r\nContent-Type: text/plain\r\n\r\n${content}\r\n--${boundary}--`
-  const res = await fetch(`${UPLOAD}?uploadType=multipart&fields=id,webViewLink`, {
+  const res = await fetch(`${UPLOAD}?uploadType=multipart&fields=id,webViewLink,parents`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
     body,
   })
   if (!res.ok) throw new Error(`Drive create failed (${res.status})`)
-  const data = (await res.json()) as { id?: string; webViewLink?: string }
+  const data = (await res.json()) as { id?: string; webViewLink?: string; parents?: string[] }
   if (data.id) setDriveFileId(docId, data.id)
-  return data.webViewLink ?? null
+  return folderUrl(data)
 }
 
 export interface SyncResult { ok: boolean; webUrl: string | null }
