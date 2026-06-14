@@ -11,60 +11,63 @@ import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
 
 const KEY = new PluginKey<DecorationSet>('pagination')
-const GAP = 56 // px of aqua between sheets
+const GAP = 56 // px of aqua (waves) between sheets
+const MARGIN_TOP = 72 // px parchment margin at the top of every page (incl. page 1)
+const MARGIN_BOTTOM = 72 // px parchment margin at the bottom of every page (page numbers sit here)
 
 export interface PaginationOptions { enabled: boolean }
 
-// The widget is `total` tall: its TOP part (transparent) is the page-above's bottom margin — the
-// continuous parchment shows through, so the page fills to A4 — and a BOTTOM band of `GAP` px shows
-// the aqua/waves background with rounded, shadowed sheet edges + the centred page number.
-function gapEl(totalPx: number, pageNum: number): HTMLElement {
+// The gap widget reserves the vertical space between the last line of one page and the first line of
+// the next: [ bottom margin of page above | GAP (transparent) | top margin of page below ]. It hosts
+// an (empty) band marker at the gap offset so the paint() pass can measure exactly where the
+// transparent gap is and lay the parchment sheet panels around it. No visible parts of its own —
+// the panels paint the parchment, the page number is a footer inside each panel.
+function gapEl(botMargin: number, topMargin: number): HTMLElement {
   const el = document.createElement('div')
   el.className = 'inkwave-page-gap'
-  el.style.height = `${Math.round(totalPx)}px`
+  el.style.height = `${Math.round(botMargin + GAP + topMargin)}px`
   el.contentEditable = 'false'
   const band = document.createElement('div')
   band.className = 'inkwave-page-gap-band'
+  band.style.top = `${Math.round(botMargin)}px`
   band.style.height = `${GAP}px`
-  const span = document.createElement('span')
-  span.textContent = String(pageNum)
-  band.appendChild(span)
   el.appendChild(band)
   return el
 }
 
-function numEl(pageNum: number): HTMLElement {
-  const el = document.createElement('div')
-  el.className = 'inkwave-page-num'
-  el.contentEditable = 'false'
-  el.textContent = String(pageNum)
-  return el
-}
-
-// Collect every LINE in the document as { intrinsic top, doc position of its start } — so a page
-// break can land mid-paragraph (the gap widget at a line-start splits the paragraph in two). Tops
-// are intrinsic (our own gap-widget heights subtracted) so adding gaps doesn't move the measurement.
-function collectLines(view: EditorView, editorTop: number, childPos: number[]): Array<{ top: number; pos: number }> {
+// Collect every LINE as { intrinsic top, doc position of its start } — so a page break can land
+// mid-paragraph (a gap widget at a line-start splits the paragraph in two). "Intrinsic" = the layout
+// AS IF no gap widgets existed: each line's top has the total height of all gap widgets ABOVE it (by
+// screen Y) subtracted. Subtracting by Y — not by walking top-level children — is what makes this
+// correct even when a gap renders NESTED inside a paragraph (a mid-paragraph break); otherwise that
+// gap's height is missed and the measured page heights drift/oscillate. Intrinsic tops are invariant
+// to the gaps, so the pagination is a stable fixpoint.
+function collectLines(view: EditorView, editorTop: number): Array<{ top: number; pos: number }> {
   const dom = view.dom as HTMLElement
+  const gaps = Array.from(dom.querySelectorAll('.inkwave-page-gap')).map((g) => {
+    const r = g.getBoundingClientRect(); return { top: r.top, h: r.height }
+  })
+  const accumAbove = (top: number): number => {
+    let s = 0; for (const g of gaps) if (g.top <= top - 2) s += g.h; return s
+  }
   const lines: Array<{ top: number; pos: number }> = []
-  let accum = 0
-  let childIdx = 0
   for (const child of Array.from(dom.children) as HTMLElement[]) {
-    if (child.classList.contains('inkwave-page-gap')) { accum += child.getBoundingClientRect().height; continue }
-    const startPos = childPos[childIdx] ?? 0
-    childIdx++
+    if (child.classList?.contains('inkwave-page-gap')) continue // the widget itself isn't a line
     let rects: DOMRect[] = []
     try { const range = document.createRange(); range.selectNodeContents(child); rects = Array.from(range.getClientRects()) } catch { /* ignore */ }
     if (!rects.length) { // empty block (e.g. a blank paragraph) → one line at the block top
-      lines.push({ top: child.getBoundingClientRect().top - editorTop - accum, pos: startPos })
+      const r = child.getBoundingClientRect()
+      const at = view.posAtCoords({ left: r.left + 1, top: r.top + Math.min(8, r.height / 2) })?.pos
+      lines.push({ top: r.top - editorTop - accumAbove(r.top), pos: at != null && at > 0 ? at : 0 })
       continue
     }
     let lastTop = -1e9
     for (const r of rects) {
-      if (r.width < 1 || r.height < 1 || r.top - lastTop <= 3) continue // dedup inline-span rects on the same line
+      // dedup inline rects on the same line; skip tall boxes (a nested gap widget, not a text line)
+      if (r.width < 1 || r.height < 1 || r.height > 80 || r.top - lastTop <= 3) continue
       lastTop = r.top
       const at = view.posAtCoords({ left: r.left + 1, top: r.top + r.height / 2 })?.pos
-      lines.push({ top: r.top - editorTop - accum, pos: at != null && at > 0 ? at : startPos })
+      lines.push({ top: r.top - editorTop - accumAbove(r.top), pos: at != null && at > 0 ? at : 0 })
     }
   }
   lines.sort((a, b) => a.top - b.top)
@@ -75,33 +78,32 @@ function compute(view: EditorView, pageH: number): { set: DecorationSet; sig: st
   if (pageH <= 0) return { set: DecorationSet.empty, sig: 'empty' }
   const editorTop = (view.dom as HTMLElement).getBoundingClientRect().top
   const doc = view.state.doc
-  const childPos: number[] = []
-  let pos = 0
-  for (let i = 0; i < doc.childCount; i++) { childPos.push(pos); pos += doc.child(i).nodeSize }
 
-  const lines = collectLines(view, editorTop, childPos)
+  const lines = collectLines(view, editorTop)
   if (!lines.length) return { set: DecorationSet.empty, sig: 'empty' }
 
+  // Each page's TEXT area is the A4 height minus the top + bottom margins; we break before the line
+  // that would overflow it, so text never reaches the bottom edge / the gap.
+  const textArea = Math.max(1, pageH - MARGIN_TOP - MARGIN_BOTTOM)
   const decos: Decoration[] = []
   const sig: string[] = []
   let used = 0
   let pageNo = 1
   for (let i = 0; i < lines.length; i++) {
     const lh = i < lines.length - 1 ? Math.max(1, lines[i + 1].top - lines[i].top) : 24
-    // Break before the LINE that would overflow the page — splitting the paragraph if mid-block.
-    if (i > 0 && used + lh > pageH && lines[i].pos > 0) {
-      const gh = Math.max(GAP, pageH - used) + GAP
+    // Break before the LINE that would overflow the text area — splitting the paragraph if mid-block.
+    if (i > 0 && used + lh > textArea && lines[i].pos > 0) {
+      // Parchment left below the last line on this page (its bottom margin), at least MARGIN_BOTTOM.
+      const botMargin = Math.max(MARGIN_BOTTOM, pageH - MARGIN_TOP - used)
       const at = lines[i].pos
-      const num = pageNo
-      decos.push(Decoration.widget(at, () => gapEl(gh, num), { side: -1, key: `gap-${num}-${at}` }))
-      sig.push(`${at}:${Math.round(gh)}:${num}`)
+      decos.push(Decoration.widget(at, () => gapEl(botMargin, MARGIN_TOP), { side: -1, key: `gap-${pageNo}-${at}` }))
+      sig.push(`${at}:${Math.round(botMargin)}`)
       pageNo++
       used = 0
     }
     used += lh
   }
-  decos.push(Decoration.widget(doc.content.size, () => numEl(pageNo), { side: 1, key: `num-${pageNo}` }))
-  sig.push(`end:${pageNo}`)
+  sig.push(`pages:${pageNo}`)
   return { set: DecorationSet.create(doc, decos), sig: sig.join('|') }
 }
 
@@ -124,28 +126,93 @@ export const PaginationExtension = Extension.create<PaginationOptions>({
         view(view) {
           if (!enabled) return {}
           let raf = 0
+          let paintRaf = 0
           let lastSig = ''
+          let sheet: HTMLElement | null = null
+          let layer: HTMLElement | null = null
+          let observed = false
+          const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => schedule()) : null
+
+          // A background layer of REAL parchment sheet panels, one per page, positioned at the
+          // measured page regions (between the gap bands). Each is its own <div>, so it gets a real
+          // 4-side drop shadow + rounded corners — discrete sheets like Word — and the gaps between
+          // them are genuinely transparent, so the fixed background + waves show through and match
+          // the surroundings exactly. Lives behind the text (z-index 0); text container is z-index 1.
+          // Resolved LAZILY: at plugin-view construction the editor isn't inside .scroll-paper yet.
+          const ensureSheet = () => {
+            if (!sheet) sheet = (view.dom as HTMLElement).closest('.scroll-paper') as HTMLElement | null
+            if (sheet && !layer) {
+              layer = document.createElement('div')
+              layer.className = 'inkwave-sheets'
+              layer.setAttribute('aria-hidden', 'true')
+              sheet.insertBefore(layer, sheet.firstChild)
+            }
+            if (sheet && ro && !observed) { ro.observe(sheet); observed = true }
+            return sheet
+          }
+          // Position panels at every region NOT covered by a gap band: [0..band0], [band0..band1], …
+          const paint = () => {
+            paintRaf = 0
+            if (!sheet || !layer) return
+            const sheetTop = sheet.getBoundingClientRect().top
+            const total = sheet.scrollHeight
+            const bands = Array.from(sheet.querySelectorAll('.inkwave-page-gap-band')) as HTMLElement[]
+            const segs: Array<{ top: number; height: number }> = []
+            let cursor = 0
+            for (const band of bands) {
+              const r = band.getBoundingClientRect()
+              const top = Math.round(r.top - sheetTop)
+              const bottom = Math.round(r.top - sheetTop + r.height)
+              if (top <= cursor) { cursor = Math.max(cursor, bottom); continue }
+              segs.push({ top: cursor, height: top - cursor })
+              cursor = bottom
+            }
+            segs.push({ top: cursor, height: Math.max(0, total - cursor) })
+            // Reconcile the panel divs to match the segment list (reuse to avoid churn). Each panel
+            // carries its page number as a footer pinned to its bottom margin (not in the gap).
+            while (layer.children.length > segs.length) layer.lastElementChild!.remove()
+            while (layer.children.length < segs.length) {
+              const d = document.createElement('div')
+              d.className = 'inkwave-sheet'
+              const f = document.createElement('div')
+              f.className = 'inkwave-sheet-num'
+              d.appendChild(f)
+              layer.appendChild(d)
+            }
+            segs.forEach((s, i) => {
+              const d = layer!.children[i] as HTMLElement
+              d.style.top = `${s.top}px`
+              d.style.height = `${s.height}px`
+              ;(d.firstChild as HTMLElement).textContent = String(i + 1)
+            })
+          }
+          const schedulePaint = () => { if (!paintRaf) paintRaf = requestAnimationFrame(paint) }
+
           const recompute = () => {
             raf = 0
-            const sheet = (view.dom as HTMLElement).closest('.scroll-paper') as HTMLElement | null
+            ensureSheet()
             const pageH = (sheet ? sheet.clientWidth : 794) * Math.SQRT2
             if (sheet) {
-              // Drive the sheet's parchment/transparent page-gradient so gaps reveal the real
-              // (fixed) background — its waves then match the surroundings exactly.
               sheet.classList.add('inkwave-gapped')
-              sheet.style.setProperty('--page-h', `${pageH}px`)
+              sheet.style.paddingTop = `${MARGIN_TOP}px` // page-1 top margin matches the rest
             }
             const { set, sig } = compute(view, pageH)
             if (sig !== lastSig) { lastSig = sig; view.dispatch(view.state.tr.setMeta(KEY, set)) }
+            // Re-measure & reposition the sheet panels after the decorations land (DOM settled).
+            schedulePaint()
           }
           const schedule = () => { if (!raf) raf = requestAnimationFrame(recompute) }
-          const sheet = (view.dom as HTMLElement).closest('.scroll-paper')
-          const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : null
-          if (ro && sheet) ro.observe(sheet)
           schedule()
           return {
             update: schedule,
-            destroy() { ro?.disconnect(); if (raf) cancelAnimationFrame(raf) },
+            destroy() {
+              ro?.disconnect()
+              if (raf) cancelAnimationFrame(raf)
+              if (paintRaf) cancelAnimationFrame(paintRaf)
+              layer?.remove()
+              sheet?.classList.remove('inkwave-gapped')
+              if (sheet) sheet.style.paddingTop = ''
+            },
           }
         },
       }),
