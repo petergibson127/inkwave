@@ -1,8 +1,7 @@
 import { SignedIn, SignedOut, useUser, useClerk } from '@clerk/clerk-react'
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router'
 import { authEnabled } from '../auth/config'
-import { useCadenceTier, startCheckout } from '../auth/entitlement'
+import { useCadenceTier, startCheckout, refreshEntitlement } from '../auth/entitlement'
 
 // On sign-in, ping the webhook-free email capture once per user (the server reads the real email
 // from Clerk and upserts it to Supabase). Fails silently if unconfigured. No webhook required.
@@ -21,116 +20,83 @@ function ProfileSync() {
   return null
 }
 
-// A small grey/white person glyph — matches the calm toolbar (currentColor → stone, hover purple).
-function PersonIcon() {
+// A menu row styled to match the OptionsMenu items.
+function Row({ onClick, disabled, children, muted }: { onClick?: () => void; disabled?: boolean; children: React.ReactNode; muted?: boolean }) {
+  if (muted) return <div className="px-4 py-1.5 text-xs text-stone-400">{children}</div>
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="8" r="4" />
-      <path d="M4 21c0-4 3.5-6 8-6s8 2 8 6" />
-    </svg>
+    <button type="button" role="menuitem" disabled={disabled} onClick={onClick}
+      className="w-full text-left px-4 py-1.5 hover:bg-stone-100 hover:text-[#5c2d8a] transition-colors disabled:opacity-50">
+      {children}
+    </button>
   )
 }
 
-// Signed-in control: an "Account" button (grey/white) with a small menu — cadence status / upgrade
-// (card via Stripe, or PayPal), Manage account, Sign out. Opens upward (it lives in the footer bar).
-function AccountButton() {
+// Poll entitlement until it flips active (the webhook lands a beat after payment) or the popup
+// closes / we time out. Runs detached from the menu, so it survives the menu closing.
+function pollAfterPayment(popup: Window | null) {
+  const started = Date.now()
+  const timer = setInterval(async () => {
+    const active = await refreshEntitlement()
+    const expired = Date.now() - started > 5 * 60 * 1000
+    if (active || (popup && popup.closed) || expired) {
+      clearInterval(timer)
+      if (active) { try { popup?.close() } catch { /* cross-origin */ } }
+    }
+  }, 2500)
+}
+
+// Signed-in account rows: Insignia status / get-it (popup checkout), Manage account, Sign out.
+function AccountItems({ onClose }: { onClose: () => void }) {
   const clerk = useClerk()
-  const { active, refresh } = useCadenceTier()
-  const [open, setOpen] = useState(false)
+  const { active } = useCadenceTier()
   const [busy, setBusy] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
-  }, [open])
-
-  // Returning from a provider redirect (?upgraded=…): re-check entitlement (webhook may lag a beat).
-  useEffect(() => {
-    const url = new URL(window.location.href)
-    if (!url.searchParams.get('upgraded')) return
-    url.searchParams.delete('upgraded'); url.searchParams.delete('upgrade')
-    window.history.replaceState({}, '', url.toString())
-    const tries = [1500, 4000, 8000]
-    tries.forEach((ms) => setTimeout(() => refresh(), ms))
-  }, [refresh])
-
-  async function go(provider: 'stripe' | 'paypal') {
+  function pay(provider: 'stripe' | 'paypal') {
+    // Open the popup SYNCHRONOUSLY (inside the click) so it isn't blocked, then point it at the
+    // provider URL once we have it. The app + this menu stay put — no full-page redirect.
+    const popup = window.open('about:blank', 'inkwave-pay', 'width=480,height=760')
     setBusy(true)
-    const dest = await startCheckout(provider)
-    if (dest) window.location.href = dest
-    else { setBusy(false); window.location.href = '/login' }
+    void startCheckout(provider).then((url) => {
+      setBusy(false)
+      if (!url) { try { popup?.close() } catch { /* noop */ }; clerk.openSignIn(); return }
+      if (popup) popup.location.href = url
+      pollAfterPayment(popup)
+      onClose()
+    })
   }
 
   return (
-    <div className="relative" ref={ref}>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="inline-flex items-center gap-1.5 uppercase tracking-wide text-xs font-serif text-stone-400 hover:text-[#5c2d8a] transition-colors"
-      >
-        <PersonIcon />
-        account
-      </button>
-      {open && (
-        <div className="absolute right-0 bottom-full mb-2 min-w-[12rem] rounded-md border border-stone-200 bg-white shadow-lg py-1 text-sm font-serif">
-          {active ? (
-            <div className="px-3 py-1.5 text-[#5c2d8a]">✓ Insignia active</div>
-          ) : (
-            <div className="px-3 py-2 border-b border-stone-100">
-              <div className="text-xs text-stone-400 mb-1.5">Insignia — $15/mo</div>
-              <button type="button" disabled={busy} onClick={() => go('stripe')}
-                className="block w-full text-left py-1 text-stone-700 hover:text-[#5c2d8a] disabled:opacity-50">
-                Pay with card
-              </button>
-              <button type="button" disabled={busy} onClick={() => go('paypal')}
-                className="block w-full text-left py-1 text-stone-700 hover:text-[#5c2d8a] disabled:opacity-50">
-                Pay with PayPal
-              </button>
-            </div>
-          )}
-          <button
-            type="button"
-            className="block w-full text-left px-3 py-1.5 text-stone-600 hover:bg-stone-50 hover:text-[#5c2d8a]"
-            onClick={() => { setOpen(false); clerk.openUserProfile() }}
-          >
-            Manage account
-          </button>
-          <button
-            type="button"
-            className="block w-full text-left px-3 py-1.5 text-stone-600 hover:bg-stone-50 hover:text-[#5c2d8a]"
-            onClick={() => { setOpen(false); void clerk.signOut({ redirectUrl: '/' }) }}
-          >
-            Sign out
-          </button>
-        </div>
+    <>
+      {active ? (
+        <div className="px-4 py-1.5 text-[#5c2d8a]">✓ Insignia active</div>
+      ) : (
+        <>
+          <Row muted>Insignia — $15/mo</Row>
+          <Row disabled={busy} onClick={() => pay('stripe')}>Pay with card</Row>
+          <Row disabled={busy} onClick={() => pay('paypal')}>Pay with PayPal</Row>
+        </>
       )}
-    </div>
+      <Row onClick={() => { onClose(); clerk.openUserProfile() }}>Manage account</Row>
+      <Row onClick={() => { onClose(); void clerk.signOut({ redirectUrl: '/' }) }}>Sign out</Row>
+    </>
   )
 }
 
-// Footer account control — a "Sign in" link when signed out, the Account button when signed in.
-// Renders nothing (and touches no Clerk context) unless paid-tier auth is configured.
-export function AccountControl() {
+function SignInItem({ onClose }: { onClose: () => void }) {
+  const clerk = useClerk()
+  return <Row onClick={() => { onClose(); clerk.openSignIn() }}>Sign in</Row>
+}
+
+// Account section for the OptionsMenu (hamburger) — sits alongside Save/Open. Sign-in when signed
+// out; Insignia + account actions when signed in. Renders nothing unless paid-tier auth is set up.
+export function AccountMenuItems({ onClose }: { onClose: () => void }) {
   if (!authEnabled()) return null
   return (
     <>
+      <div className="my-1 border-t border-stone-100" />
       <ProfileSync />
-      <SignedOut>
-        <Link
-          to="/login"
-          className="inline-flex items-center gap-1.5 uppercase tracking-wide text-xs transition-colors font-serif text-stone-400 hover:text-[#5c2d8a]"
-        >
-          <PersonIcon />
-          sign in
-        </Link>
-      </SignedOut>
-      <SignedIn>
-        <AccountButton />
-      </SignedIn>
+      <SignedOut><SignInItem onClose={onClose} /></SignedOut>
+      <SignedIn><AccountItems onClose={onClose} /></SignedIn>
     </>
   )
 }

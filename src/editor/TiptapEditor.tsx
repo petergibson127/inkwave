@@ -21,7 +21,6 @@ import { CycleHintPanel } from './suggestions/CycleHintPanel'
 import { prefetchSynonyms } from './suggestions/thesaurus'
 import { LimitSelector } from '../components/LimitSelector'
 import { OptionsMenu } from '../components/OptionsMenu'
-import { AccountControl } from '../components/AccountControl'
 import { StyleBar } from '../components/StyleBar'
 import { GuideMenu } from '../components/GuideMenu'
 import { ComplianceContext, useComplianceProvider } from '../scas/compliance'
@@ -962,7 +961,6 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
                 style
               </button>
               <GuideMenu />
-              <AccountControl />
               <OptionsMenu
                 paperRight={paperRight}
                 onExportBundle={exportBundle}
