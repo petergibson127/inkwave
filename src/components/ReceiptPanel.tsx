@@ -46,7 +46,7 @@ export function ReceiptPanel({
       {/* Anchored at the very corner with the inset as PADDING (inside the scaled box) so zoom
           compensation keeps both size AND position constant — no drift. */}
       <div
-        className="fixed bottom-0 left-0 z-40 font-serif text-sm select-none"
+        className="fixed bottom-0 left-0 z-40 font-serif text-sm select-none flex flex-col-reverse items-start"
         style={{ color: '#5c2d8a', padding: '1rem', transform: zoom !== 1 ? `scale(${zoom})` : undefined, transformOrigin: 'bottom left' }}
       >
         <button
@@ -61,7 +61,7 @@ export function ReceiptPanel({
 
         {panelOpen && (
           <div
-            className="mt-1.5 bg-white overflow-auto w-[150px] max-lg:w-[120px]"
+            className="mb-1.5 bg-white overflow-auto w-[150px] max-lg:w-[120px]"
             style={{ border: '1px solid rgba(92, 45, 138, 0.4)', borderRadius: 10, maxHeight: '40vh' }}
           >
             {typeof wordCount === 'number' && (
