@@ -81,20 +81,22 @@
     border-radius: 8px;
     box-shadow: 0 8px 32px rgba(80, 50, 10, 0.22), 0 2px 6px rgba(80, 50, 10, 0.18);
   }
-  /* The gap widget just reserves the vertical space between sheets and hosts the centred page
-     number at its bottom; the background shows through it (no parchment of its own). */
+  /* The gap widget reserves the space between sheets; the band is an invisible marker (positioned by
+     the extension at the gap offset) that the paint() pass measures to lay the panels around. */
   .inkwave-page-gap { position: relative; user-select: none; }
-  .inkwave-page-gap-band {
+  .inkwave-page-gap-band { position: absolute; left: 0; right: 0; }
+  /* Page number, pinned to each sheet's bottom margin (a footer) — never in the gap. */
+  .inkwave-sheet-num {
     position: absolute;
-    bottom: 0;
+    bottom: 26px;
     left: 0;
     right: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    text-align: center;
+    font-family: 'EB Garamond', Georgia, serif;
+    color: #9b5ccc;
+    font-size: 0.9rem;
+    user-select: none;
   }
-  .inkwave-page-gap-band > span { font-family: 'EB Garamond', Georgia, serif; color: #7c5aa6; font-size: 0.9rem; }
-  .inkwave-page-num { text-align: center; padding: 10px 0 28px; font-family: 'EB Garamond', Georgia, serif; color: #9b5ccc; font-size: 0.9rem; user-select: none; }
 
   /* On a phone: just the paper, no background. Drop the aqua + waves and the surface padding so the
      parchment fills the screen edge-to-edge (driven by device type, not viewport width, so zoom
