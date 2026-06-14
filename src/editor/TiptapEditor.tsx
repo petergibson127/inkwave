@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useEditor, EditorContent, Extension } from '@tiptap/react'
+import { TextSelection } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import TextStyle from '@tiptap/extension-text-style'
 import FontFamily from '@tiptap/extension-font-family'
@@ -205,6 +206,25 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
         class: 'tiptap-editor',
         'data-placeholder': 'Begin writing…',
         spellcheck: 'false',
+      },
+      // Click after the last word of the line above a PAGE GAP: posAtCoords resolves to the start of
+      // the next page, so the caret jumps down. Detect ONLY the gap case — pos renders far below the
+      // click (a gap is ~230px; an ordinary soft wrap is one ~45px line, which must be left alone, a
+      // broader version of this regressed normal clicks) — and step back over the wrap whitespace so
+      // the caret lands at the end of the clicked line. (CaretGutter handles the side margins.)
+      handleClick(view, pos, event) {
+        try {
+          if (view.coordsAtPos(pos).top - event.clientY < 120) return false
+          const doc = view.state.doc
+          let p = pos
+          let guard = 0
+          while (p > 1 && guard++ < 50 && /\s/.test(doc.textBetween(p - 1, p))) p--
+          if (p !== pos && p > 0) {
+            view.dispatch(view.state.tr.setSelection(TextSelection.create(doc, p)))
+            return true
+          }
+        } catch { /* coords unavailable — let ProseMirror place it */ }
+        return false
       },
     },
     onTransaction: ({ editor: e, transaction }) => {
