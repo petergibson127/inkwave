@@ -42,18 +42,18 @@ export function CaretGutter(
   // The x just inside the text column on this side — the line start (left) or end (right).
   const edgeX = (rect: DOMRect) => (side === 'left' ? rect.left + 2 : rect.right - 2)
 
-  // Drop a collapsed caret at pos, fixing WebKit's wrap-boundary affinity. A position at a
-  // soft wrap is visually shared by two lines; setTextSelection can render it on the wrong
-  // one (WebKit). Re-place the DOM caret from a POINT on the intended line's glyph: left
-  // wants the lower line (bias +1, just right of the caret x), right wants the upper line
-  // (bias -1, just left of it). A Range from a point there carries that line's affinity,
-  // exactly as a real click does, for any node structure.
+  // Drop a collapsed caret at pos, fixing wrap-boundary affinity. A position at a soft wrap is
+  // visually shared by two lines; setTextSelection can render it on the wrong one. Re-place the DOM
+  // caret from a POINT on the intended line: gy (the line's vertical centre) selects the LINE — this
+  // is what fixes the wrong-line placement — and gx selects the position on it. The right edge wants
+  // the caret AT its x (after the line's last glyph); sampling left of it (the old -2) lands one char
+  // short on narrow finals (comma, full stop, s). Left wants just inside the first glyph (+2).
   function placeCaret(pos: number) {
     const view = editor.view
     editor.chain().focus().setTextSelection(pos).run()
     try {
       const c = view.coordsAtPos(pos, side === 'left' ? 1 : -1)
-      const gx = side === 'left' ? c.left + 2 : c.left - 2
+      const gx = side === 'left' ? c.left + 2 : c.left
       const gy = (c.top + c.bottom) / 2
       const d = document as CaretDoc
       let range: Range | null = null
