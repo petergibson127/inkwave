@@ -2,7 +2,7 @@ import { SignedIn, SignedOut, useUser, useClerk } from '@clerk/clerk-react'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { authEnabled } from '../auth/config'
-import { useCadenceTier, stripeClientSecret, refreshEntitlement } from '../auth/entitlement'
+import { useCadenceTier, stripeClientSecret, paypalApproveUrl, refreshEntitlement } from '../auth/entitlement'
 
 // On sign-in, ping the webhook-free email capture once per user (the server reads the real email
 // from Clerk and upserts it to Supabase). Fails silently if unconfigured. No webhook required.
@@ -69,6 +69,7 @@ function InsigniaModal({ onClose }: { onClose: () => void }) {
   const PK = import.meta.env?.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined
   const [done, setDone] = useState(false)
   const [info, setInfo] = useState(false)
+  const [busy, setBusy] = useState(false)
   const cardRef = useRef<HTMLDivElement>(null)
   const checkoutRef = useRef<StripeEmbedded | null>(null)
   // onClose changes identity on every parent render; keep it in a ref so the mount effect below
@@ -94,6 +95,20 @@ function InsigniaModal({ onClose }: { onClose: () => void }) {
     })()
     return () => { cancelled = true; try { checkoutRef.current?.destroy() } catch { /* noop */ } checkoutRef.current = null }
   }, [PK, done])
+
+  function payPaypal() {
+    // Open the popup SYNCHRONOUSLY (inside the click) so it isn't blocked, then point it at PayPal's
+    // approval URL. Stripe's PayPal can't do AUD subscriptions, so this is our own PayPal flow.
+    const popup = window.open('about:blank', 'inkwave-pay', 'width=480,height=820')
+    setBusy(true)
+    void paypalApproveUrl().then((url) => {
+      setBusy(false)
+      if (!url) { try { popup?.close() } catch { /* noop */ } return }
+      if (popup) popup.location.href = url
+      pollAfterPayment(() => onCloseRef.current())
+      onClose()
+    })
+  }
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onMouseDown={onClose}>
@@ -122,10 +137,16 @@ function InsigniaModal({ onClose }: { onClose: () => void }) {
         <p className="text-sm text-stone-500 text-center mt-2 mb-4">$15 AUD per month</p>
         {done ? (
           <p className="text-center text-[#5c2d8a] py-10">✓ Payment received — activating Insignia…</p>
-        ) : PK ? (
-          <div ref={cardRef} className="min-h-[18rem]" />
         ) : (
-          <p className="text-xs text-amber-600 text-center py-6">Card checkout needs VITE_STRIPE_PUBLISHABLE_KEY in .env.</p>
+          <>
+            {PK
+              ? <div ref={cardRef} className="min-h-[18rem]" />
+              : <p className="text-xs text-amber-600 text-center py-6">Card checkout needs VITE_STRIPE_PUBLISHABLE_KEY in .env.</p>}
+            <button type="button" disabled={busy} onClick={payPaypal}
+              className="mt-3 w-full rounded-md border border-[#5c2d8a]/40 py-2 text-stone-700 hover:bg-[#5c2d8a] hover:text-white transition-colors disabled:opacity-50">
+              pay with PayPal
+            </button>
+          </>
         )}
       </div>
     </div>,
