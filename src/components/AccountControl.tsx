@@ -69,10 +69,15 @@ function InsigniaModal({ onClose }: { onClose: () => void }) {
   const PK = import.meta.env?.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined
   const [done, setDone] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [info, setInfo] = useState(false)
   const cardRef = useRef<HTMLDivElement>(null)
   const checkoutRef = useRef<StripeEmbedded | null>(null)
+  // onClose changes identity on every parent render; keep it in a ref so the mount effect below
+  // doesn't re-run (which re-mounted Stripe every render → the "refreshing every few seconds").
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
 
-  // Mount Stripe's embedded Checkout straight away (card + Apple/Google Pay) when the modal opens.
+  // Mount Stripe's embedded Checkout once when the modal opens (card + Apple/Google Pay when avail.).
   useEffect(() => {
     if (!PK || done) return
     let cancelled = false
@@ -82,14 +87,14 @@ function InsigniaModal({ onClose }: { onClose: () => void }) {
       if (!secret || !stripe || cancelled || !cardRef.current) return
       const checkout = await stripe.initEmbeddedCheckout({
         clientSecret: secret,
-        onComplete: () => { setDone(true); pollAfterPayment(onClose) },
+        onComplete: () => { setDone(true); pollAfterPayment(() => onCloseRef.current()) },
       })
       if (cancelled || !cardRef.current) { try { checkout.destroy() } catch { /* noop */ }; return }
       checkoutRef.current = checkout
       checkout.mount(cardRef.current)
     })()
     return () => { cancelled = true; try { checkoutRef.current?.destroy() } catch { /* noop */ } checkoutRef.current = null }
-  }, [PK, done, onClose])
+  }, [PK, done])
 
   function payPaypal() {
     // Open the popup SYNCHRONOUSLY (inside the click) so it isn't blocked, then point it at PayPal's
@@ -100,7 +105,7 @@ function InsigniaModal({ onClose }: { onClose: () => void }) {
       setBusy(false)
       if (!url) { try { popup?.close() } catch { /* noop */ } return }
       if (popup) popup.location.href = url
-      pollAfterPayment(onClose)
+      pollAfterPayment(() => onCloseRef.current())
       onClose()
     })
   }
@@ -112,22 +117,33 @@ function InsigniaModal({ onClose }: { onClose: () => void }) {
         className="relative bg-white rounded-xl shadow-xl p-6 w-full max-w-md max-h-[85vh] overflow-auto font-serif">
         <button type="button" aria-label="Close" onClick={onClose}
           className="absolute top-3 right-3 text-stone-400 hover:text-[#5c2d8a] text-2xl leading-none z-10">×</button>
-        <h2 className="text-lg text-[#5c2d8a] text-center">Insignia</h2>
-        <p className="text-sm text-stone-500 text-center mb-4">$15 AUD per month</p>
+        <div className="flex items-center justify-center gap-2">
+          <h2 className="text-2xl text-[#5c2d8a]">Insignia</h2>
+          <button type="button" aria-label="About Insignia" onClick={() => setInfo((i) => !i)}
+            className="w-5 h-5 flex items-center justify-center rounded-full border border-stone-300 text-stone-400 text-xs leading-none hover:text-[#5c2d8a] hover:border-[#5c2d8a]">i</button>
+        </div>
+        {info && (
+          <p className="text-xs text-stone-500 text-center mt-2 max-w-sm mx-auto">
+            Insignia signs your keystroke cadence into your provenance record — tamper-evident
+            evidence your writing was composed live, at a human pace, not pasted or generated.
+            Cancel anytime.
+          </p>
+        )}
+        <div className="flex items-baseline justify-center gap-3 mt-2 mb-4">
+          <span className="text-sm text-stone-500">$15 AUD per month</span>
+          {!done && (
+            <button type="button" disabled={busy} onClick={payPaypal}
+              className="text-base text-[#5c2d8a] underline hover:opacity-70 disabled:opacity-50">
+              pay with PayPal
+            </button>
+          )}
+        </div>
         {done ? (
           <p className="text-center text-[#5c2d8a] py-10">✓ Payment received — activating Insignia…</p>
+        ) : PK ? (
+          <div ref={cardRef} className="min-h-[18rem]" />
         ) : (
-          <>
-            {PK
-              ? <div ref={cardRef} className="min-h-[18rem]" />
-              : <p className="text-xs text-amber-600 text-center py-6">Card checkout needs VITE_STRIPE_PUBLISHABLE_KEY in .env.</p>}
-            <div className="text-center mt-3">
-              <button type="button" disabled={busy} onClick={payPaypal}
-                className="text-sm text-stone-500 underline hover:text-[#5c2d8a] disabled:opacity-50">
-                or pay with PayPal
-              </button>
-            </div>
-          </>
+          <p className="text-xs text-amber-600 text-center py-6">Card checkout needs VITE_STRIPE_PUBLISHABLE_KEY in .env.</p>
         )}
       </div>
     </div>,
