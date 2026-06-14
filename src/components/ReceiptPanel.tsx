@@ -56,7 +56,13 @@ export function ReceiptPanel({
           style={{ border: '1px solid rgba(92, 45, 138, 0.75)', borderRadius: compact ? 9999 : 12 }}
           title="Provenance record (held by you)"
         >
-          {compact ? '◈' : <>◈ {n} snapshot{n === 1 ? '' : 's'}{receiptCount > 0 ? ` · ${receiptCount} receipt${receiptCount === 1 ? '' : 's'}` : ''}</>}
+          {compact ? '◈' : (
+            // Hanging indent: when the label wraps (half-screen), the "· N receipts" line lines up
+            // under "N snapshots" rather than under the ◈.
+            <span className="inline-block pl-[1.2em] [text-indent:-1.2em]">
+              ◈ {n} snapshot{n === 1 ? '' : 's'}{receiptCount > 0 ? ` · ${receiptCount} receipt${receiptCount === 1 ? '' : 's'}` : ''}
+            </span>
+          )}
         </button>
 
         {panelOpen && (
