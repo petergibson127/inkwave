@@ -105,7 +105,9 @@ function compute(view: EditorView, pageH: number): { set: DecorationSet; sig: st
       // of the page-above jumps the caret past the gap to the start of the next page (and edits then
       // land on the wrong page, which read as "deletions don't reflow"). Ignoring it for selection
       // keeps the caret on the text it belongs to. stopEvent: clicks on the gap aren't editor input.
-      decos.push(Decoration.widget(at, () => gapEl(botMargin, MARGIN_TOP), { side: -1, ignoreSelection: true, stopEvent: () => true, key: `gap-${pageNo}-${at}` }))
+      // side:1 — the cursor AT the break position (after the page-above's last word + its trailing
+      // space) renders BEFORE the gap (end of the page above), not after it (start of the next page).
+      decos.push(Decoration.widget(at, () => gapEl(botMargin, MARGIN_TOP), { side: 1, ignoreSelection: true, stopEvent: () => true, key: `gap-${pageNo}-${at}` }))
       sig.push(`${at}:${Math.round(botMargin)}`)
       pageNo++
       used = 0
