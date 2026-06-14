@@ -189,7 +189,6 @@ export async function pickGoogleDriveFolder(): Promise<{ id: string; name: strin
         // just sits there ("goes light, doesn't progress"). Hide + tear it down on every terminal
         // action. (LOADED fires first when the dialog mounts — ignore it.)
         const action = data.action
-        console.debug('[inkwave] picker callback', action, data)
         if (action === 'loaded' || action === picker.Action.LOADED) return
         try { p.setVisible(false) } catch { /* already gone */ }
         const doc = data.docs?.[0]
