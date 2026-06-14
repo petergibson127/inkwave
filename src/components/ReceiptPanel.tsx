@@ -52,7 +52,7 @@ export function ReceiptPanel({
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className={compact ? 'flex items-center justify-center w-9 h-9 bg-white text-lg' : 'px-2.5 py-1 bg-white leading-tight max-w-[7.5rem] text-left'}
+          className={compact ? 'flex items-center justify-center w-9 h-9 bg-white text-lg' : 'bg-white leading-tight text-left px-2.5 py-1 max-w-[7.5rem] max-lg:text-xs max-lg:px-2 max-lg:py-0.5 max-lg:max-w-[5.5rem]'}
           style={{ border: '1px solid rgba(92, 45, 138, 0.75)', borderRadius: compact ? 9999 : 12 }}
           title="Provenance record (held by you)"
         >

@@ -93,7 +93,7 @@ export function SyncStatus({
         title={tooltip}
         className={compact
           ? 'flex items-center justify-center w-9 h-9 rounded-full bg-white shadow-sm text-lg'
-          : 'text-sm cursor-pointer rounded-full px-2.5 py-0.5 bg-white/70 hover:bg-white transition-colors text-right leading-tight max-w-[7.5rem]'}
+          : 'cursor-pointer rounded-full bg-white/70 hover:bg-white transition-colors text-right leading-tight text-sm px-2.5 py-0.5 max-w-[7.5rem] max-lg:text-xs max-lg:px-2 max-lg:max-w-[5.5rem]'}
         style={{ color: synced ? '#6b7280' : '#b45309', border: compact ? `1px solid ${INK}66` : undefined }}
       >
         {compact ? (synced ? '☁' : '☁') : label}
