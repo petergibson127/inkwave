@@ -1,5 +1,5 @@
-import { SignedIn, SignedOut, UserButton, useUser } from '@clerk/clerk-react'
-import { useEffect, useRef } from 'react'
+import { SignedIn, SignedOut, useUser, useClerk } from '@clerk/clerk-react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { authEnabled } from '../auth/config'
 
@@ -20,7 +20,62 @@ function ProfileSync() {
   return null
 }
 
-// Footer account control — a "Sign in" link when signed out, Clerk's user button when signed in.
+// A small grey/white person glyph — matches the calm toolbar (currentColor → stone, hover purple).
+function PersonIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 21c0-4 3.5-6 8-6s8 2 8 6" />
+    </svg>
+  )
+}
+
+// Signed-in control: an "Account" button (grey/white) with a small menu — Manage account (Clerk's
+// hosted profile) and Sign out. Replaces Clerk's coloured avatar button. Opens upward (footer bar).
+function AccountButton() {
+  const clerk = useClerk()
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [open])
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-1.5 uppercase tracking-wide text-xs font-serif text-stone-400 hover:text-[#5c2d8a] transition-colors"
+      >
+        <PersonIcon />
+        account
+      </button>
+      {open && (
+        <div className="absolute right-0 bottom-full mb-2 min-w-[10rem] rounded-md border border-stone-200 bg-white shadow-lg py-1 text-sm font-serif">
+          <button
+            type="button"
+            className="block w-full text-left px-3 py-1.5 text-stone-600 hover:bg-stone-50 hover:text-[#5c2d8a]"
+            onClick={() => { setOpen(false); clerk.openUserProfile() }}
+          >
+            Manage account
+          </button>
+          <button
+            type="button"
+            className="block w-full text-left px-3 py-1.5 text-stone-600 hover:bg-stone-50 hover:text-[#5c2d8a]"
+            onClick={() => { setOpen(false); void clerk.signOut({ redirectUrl: '/' }) }}
+          >
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Footer account control — a "Sign in" link when signed out, the Account button when signed in.
 // Renders nothing (and touches no Clerk context) unless paid-tier auth is configured.
 export function AccountControl() {
   if (!authEnabled()) return null
@@ -30,13 +85,14 @@ export function AccountControl() {
       <SignedOut>
         <Link
           to="/login"
-          className="uppercase tracking-wide text-xs transition-colors font-serif text-stone-400 hover:text-[#5c2d8a]"
+          className="inline-flex items-center gap-1.5 uppercase tracking-wide text-xs transition-colors font-serif text-stone-400 hover:text-[#5c2d8a]"
         >
+          <PersonIcon />
           sign in
         </Link>
       </SignedOut>
       <SignedIn>
-        <UserButton afterSignOutUrl="/" />
+        <AccountButton />
       </SignedIn>
     </>
   )
