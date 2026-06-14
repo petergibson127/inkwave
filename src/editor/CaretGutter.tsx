@@ -50,7 +50,10 @@ export function CaretGutter(
   // exactly as a real click does, for any node structure.
   function placeCaret(pos: number) {
     const view = editor.view
-    editor.chain().focus().setTextSelection(pos).run()
+    // scrollIntoView:false — focus() would otherwise scroll `pos` into view before the affinity fix
+    // below re-places the caret, so at a page boundary the view visibly jumps to the next page and
+    // back. We place the caret at an already-visible click point, so no scroll is needed.
+    editor.chain().focus(undefined, { scrollIntoView: false }).setTextSelection(pos).run()
     try {
       const c = view.coordsAtPos(pos, side === 'left' ? 1 : -1)
       const gx = side === 'left' ? c.left + 2 : c.left - 2
