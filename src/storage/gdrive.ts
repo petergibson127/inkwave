@@ -174,9 +174,14 @@ export async function pickGoogleDriveFolder(): Promise<{ id: string; name: strin
   const picker = (window as unknown as { google: { picker: PickerNS } }).google.picker
   return new Promise((resolve) => {
     const view = new picker.DocsView(picker.ViewId.FOLDERS).setSelectFolderEnabled(true).setMimeTypes('application/vnd.google-apps.folder')
+    // appId = the Google Cloud project NUMBER (the numeric prefix of the OAuth client id). REQUIRED
+    // with the drive.file scope so the Picker can grant THIS app access to the folder you select —
+    // without it, selecting a folder silently stalls.
+    const appId = (CLIENT_ID ?? '').split('-')[0]
     const p = new picker.PickerBuilder()
       .setOAuthToken(token)
       .setDeveloperKey(API_KEY)
+      .setAppId(appId)
       .setOrigin(`${window.location.protocol}//${window.location.host}`)
       .addView(view)
       .setCallback((data: { action: string; docs?: Array<{ id: string; name: string }> }) => {
