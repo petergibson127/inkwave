@@ -12,6 +12,7 @@ export function ReceiptPanel({
   chainStatus,
   onVerifyChain,
   wordCount,
+  compact,
 }: {
   snapshots: Snapshot[]
   onCheckBitcoin?: () => void
@@ -19,6 +20,7 @@ export function ReceiptPanel({
   chainStatus?: string | null
   onVerifyChain?: () => void
   wordCount?: number
+  compact?: boolean // mobile: a small ◈ circle instead of the text pill
 }) {
   const [open, setOpen] = useState(false)
   const zoom = useZoomScale()
@@ -50,11 +52,11 @@ export function ReceiptPanel({
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className="px-2.5 py-1 bg-white"
-          style={{ border: '1px solid rgba(92, 45, 138, 0.75)', borderRadius: 12 }}
+          className={compact ? 'flex items-center justify-center w-9 h-9 bg-white text-lg' : 'px-2.5 py-1 bg-white leading-tight max-w-[7.5rem] text-left'}
+          style={{ border: '1px solid rgba(92, 45, 138, 0.75)', borderRadius: compact ? 9999 : 12 }}
           title="Provenance record (held by you)"
         >
-          ◈ {n} snapshot{n === 1 ? '' : 's'}{receiptCount > 0 ? ` · ${receiptCount} receipt${receiptCount === 1 ? '' : 's'}` : ''}
+          {compact ? '◈' : <>◈ {n} snapshot{n === 1 ? '' : 's'}{receiptCount > 0 ? ` · ${receiptCount} receipt${receiptCount === 1 ? '' : 's'}` : ''}</>}
         </button>
 
         {panelOpen && (

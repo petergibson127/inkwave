@@ -844,24 +844,28 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
 
         <CycleHintPanel active={cycleActive} showHints={showHints} containerRight={containerRight} />
 
-        <ReceiptPanel
-          snapshots={snapshots}
-          onCheckBitcoin={checkBitcoin}
-          receiptCount={receipts.length}
-          chainStatus={chainStatus}
-          onVerifyChain={verifyReceiptChain}
-          wordCount={wordCount}
-        />
+        {!keyboardUp && (
+          <ReceiptPanel
+            snapshots={snapshots}
+            onCheckBitcoin={checkBitcoin}
+            receiptCount={receipts.length}
+            chainStatus={chainStatus}
+            onVerifyChain={verifyReceiptChain}
+            wordCount={wordCount}
+            compact={isTouch}
+          />
+        )}
 
         {/* One sync indicator. Regular browser (File System Access) → local folder only; Firefox/
-            Safari → OneDrive. The label reads clearly in every state. */}
-        {(() => {
+            Safari → OneDrive. The label reads clearly in every state. Hidden while the phone
+            keyboard is up so it never sits over the writing. */}
+        {!keyboardUp && (() => {
           if (fileSaveAvailable()) {
             // Regular browser → local folder. Honest states so the writer is never misled into
             // thinking it's saving when it isn't:
             if (needsReconnect) {
               return (
-                <SyncStatus
+                <SyncStatus compact={isTouch}
                   label="⚠ Reconnect to keep saving"
                   synced={false}
                   path={fileName}
@@ -871,7 +875,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
               )
             }
             return fileName ? (
-              <SyncStatus
+              <SyncStatus compact={isTouch}
                 label={lastFileSave ? '✓ Synced to folder' : '🗀 Sync pending'}
                 synced={!!lastFileSave}
                 path={fileName}
@@ -881,12 +885,12 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
                 onChangeFolder={saveAsFile}
               />
             ) : (
-              <SyncStatus label="🗀 Save to a folder" synced={false} onClick={() => void saveToFile()} />
+              <SyncStatus compact={isTouch} label="🗀 Save to a folder" synced={false} onClick={() => void saveToFile()} />
             )
           }
           if (!oneDriveConfigured()) return null
           return oneDriveAcct ? (
-            <SyncStatus
+            <SyncStatus compact={isTouch}
               label={lastSync ? '✓ Synced to OneDrive' : '☁ Sync pending'}
               synced={!!lastSync}
               path={oneDrivePath(doc)}
@@ -897,7 +901,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
               onClick={lastSync ? undefined : syncOneDrive}
             />
           ) : (
-            <SyncStatus label="☁ disconnected" synced={false} tooltip="OneDrive — sign in to sync" onClick={syncOneDrive} />
+            <SyncStatus compact={isTouch} label="☁ disconnected" synced={false} tooltip="OneDrive — sign in to sync" onClick={syncOneDrive} />
           )
         })()}
 

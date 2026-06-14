@@ -19,7 +19,7 @@ function relativeTime(t: number): string {
 }
 
 export function SyncStatus({
-  label, synced, path, lastSync, tooltip, webUrl, onShowInFolder, onChangeFolder, onClick,
+  label, synced, path, lastSync, tooltip, webUrl, onShowInFolder, onChangeFolder, onClick, compact,
 }: {
   label: string
   synced: boolean
@@ -30,6 +30,7 @@ export function SyncStatus({
   onShowInFolder?: () => void // local folder: reveal the file's folder (native picker startIn)
   onChangeFolder?: () => void
   onClick?: () => void // pill action when not synced (connect / sync now)
+  compact?: boolean // mobile: a small cloud circle instead of the text pill
 }) {
   const [, tick] = useState(0)
   const [open, setOpen] = useState(false)
@@ -84,15 +85,18 @@ export function SyncStatus({
         </div>
       )}
 
-      {/* Compact pill — right-anchored (never overlaps the centered text). */}
+      {/* Right-anchored trigger. Mobile: a small cloud circle. Desktop: a pill whose label wraps to
+          ~2 lines (a narrow width) so it never collides with the centred toolbar on a half-screen. */}
       <button
         type="button"
         onClick={() => (onClick && !synced ? onClick() : setOpen((o) => !o))}
         title={tooltip}
-        className="text-sm cursor-pointer rounded-full px-2.5 py-0.5 bg-white/70 hover:bg-white transition-colors"
-        style={{ color: synced ? '#6b7280' : '#b45309' }}
+        className={compact
+          ? 'flex items-center justify-center w-9 h-9 rounded-full bg-white shadow-sm text-lg'
+          : 'text-sm cursor-pointer rounded-full px-2.5 py-0.5 bg-white/70 hover:bg-white transition-colors text-right leading-tight max-w-[7.5rem]'}
+        style={{ color: synced ? '#6b7280' : '#b45309', border: compact ? `1px solid ${INK}66` : undefined }}
       >
-        {label}
+        {compact ? (synced ? '☁' : '☁') : label}
       </button>
     </div>
   )
