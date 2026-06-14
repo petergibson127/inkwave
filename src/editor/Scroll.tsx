@@ -32,6 +32,10 @@ export function Scroll({
   // with no vertical movement. rAF-throttled.
   const surfaceRef = useRef<HTMLDivElement>(null)
   const sheetRef = useRef<HTMLDivElement>(null)
+  // Gapped mode draws a separate-sheet drop shadow at EACH page break (the rounded caps in
+  // PaginationExtension); the single tall outer shadow would otherwise bleed continuously down the
+  // left/right edges and through the gaps, so we drop it here and let the per-gap caps do the work.
+  const gapped = gappedPagesEnabled()
   useEffect(() => {
     const el = surfaceRef.current
     if (!el) return
@@ -58,7 +62,7 @@ export function Scroll({
           // rendered inside doesn't feed its pixels into the shadow — drop-shadow re-rasterises
           // the whole parchment on every reel frame.
           borderRadius: phone ? 0 : '8px',
-          boxShadow: phone ? 'none' : '0 8px 32px rgba(80,50,10,0.22), 0 2px 6px rgba(80,50,10,0.18)',
+          boxShadow: phone || gapped ? 'none' : '0 8px 32px rgba(80,50,10,0.22), 0 2px 6px rgba(80,50,10,0.18)',
         }}
       >
         {/* Paper body. The side padding is the text margin: a roomy fixed margin on DESKTOP (driven

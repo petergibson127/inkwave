@@ -124,28 +124,77 @@ export const PaginationExtension = Extension.create<PaginationOptions>({
         view(view) {
           if (!enabled) return {}
           let raf = 0
+          let paintRaf = 0
           let lastSig = ''
+          const sheet = (view.dom as HTMLElement).closest('.scroll-paper') as HTMLElement | null
+
+          // A background layer of REAL parchment sheet panels, one per page, positioned at the
+          // measured page regions (between the gap bands). Each is its own <div>, so it gets a real
+          // 4-side drop shadow + rounded corners — discrete sheets like Word — and the gaps between
+          // them are genuinely transparent, so the fixed background + waves show through and match
+          // the surroundings exactly. Lives behind the text (z-index 0); text container is z-index 1.
+          let layer: HTMLElement | null = null
+          if (sheet) {
+            layer = document.createElement('div')
+            layer.className = 'inkwave-sheets'
+            layer.setAttribute('aria-hidden', 'true')
+            sheet.insertBefore(layer, sheet.firstChild)
+          }
+          // Position panels at every region NOT covered by a gap band: [0..band0], [band0..band1], …
+          const paint = () => {
+            paintRaf = 0
+            if (!sheet || !layer) return
+            const sheetTop = sheet.getBoundingClientRect().top
+            const total = sheet.scrollHeight
+            const bands = Array.from(sheet.querySelectorAll('.inkwave-page-gap-band')) as HTMLElement[]
+            const segs: Array<{ top: number; height: number }> = []
+            let cursor = 0
+            for (const band of bands) {
+              const r = band.getBoundingClientRect()
+              const top = Math.round(r.top - sheetTop)
+              const bottom = Math.round(r.top - sheetTop + r.height)
+              if (top <= cursor) { cursor = Math.max(cursor, bottom); continue }
+              segs.push({ top: cursor, height: top - cursor })
+              cursor = bottom
+            }
+            segs.push({ top: cursor, height: Math.max(0, total - cursor) })
+            // Reconcile the panel divs to match the segment list (reuse to avoid churn).
+            while (layer.children.length > segs.length) layer.lastElementChild!.remove()
+            while (layer.children.length < segs.length) {
+              const d = document.createElement('div')
+              d.className = 'inkwave-sheet'
+              layer.appendChild(d)
+            }
+            segs.forEach((s, i) => {
+              const d = layer!.children[i] as HTMLElement
+              d.style.top = `${s.top}px`
+              d.style.height = `${s.height}px`
+            })
+          }
+          const schedulePaint = () => { if (!paintRaf) paintRaf = requestAnimationFrame(paint) }
+
           const recompute = () => {
             raf = 0
-            const sheet = (view.dom as HTMLElement).closest('.scroll-paper') as HTMLElement | null
             const pageH = (sheet ? sheet.clientWidth : 794) * Math.SQRT2
-            if (sheet) {
-              // Drive the sheet's parchment/transparent page-gradient so gaps reveal the real
-              // (fixed) background — its waves then match the surroundings exactly.
-              sheet.classList.add('inkwave-gapped')
-              sheet.style.setProperty('--page-h', `${pageH}px`)
-            }
+            if (sheet) sheet.classList.add('inkwave-gapped')
             const { set, sig } = compute(view, pageH)
             if (sig !== lastSig) { lastSig = sig; view.dispatch(view.state.tr.setMeta(KEY, set)) }
+            // Re-measure & reposition the sheet panels after the decorations land (DOM settled).
+            schedulePaint()
           }
           const schedule = () => { if (!raf) raf = requestAnimationFrame(recompute) }
-          const sheet = (view.dom as HTMLElement).closest('.scroll-paper')
           const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : null
           if (ro && sheet) ro.observe(sheet)
           schedule()
           return {
             update: schedule,
-            destroy() { ro?.disconnect(); if (raf) cancelAnimationFrame(raf) },
+            destroy() {
+              ro?.disconnect()
+              if (raf) cancelAnimationFrame(raf)
+              if (paintRaf) cancelAnimationFrame(paintRaf)
+              layer?.remove()
+              sheet?.classList.remove('inkwave-gapped')
+            },
           }
         },
       }),

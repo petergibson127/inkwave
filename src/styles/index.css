@@ -53,65 +53,47 @@
     will-change: background-position;
   }
 
-  /* Gapped-pages mode (pagination extension). The widget's top is TRANSPARENT — the continuous
-     parchment shows through, so each page fills to A4. Its bottom `band` is the full-bleed aqua +
-     waves background between sheets; ::before/::after are the rounded, shadowed page edges, drawn
-     only across the sheet width (not the full viewport) + a centred page number. */
-  /* In gapped mode the SHEET paints parchment per A4 page and leaves the gap region TRANSPARENT —
-     so the real (fixed) aqua+waves background shows through the gaps and matches the surroundings
-     exactly. Driven by --page-h from the pagination extension; top padding 0 so it aligns. */
+  /* Gapped-pages mode (pagination extension) = discrete sheets, like Word. The SHEET element itself
+     goes fully transparent, so the real (fixed) aqua+waves background shows through everywhere; the
+     parchment is painted by real per-page panels (.inkwave-sheet) in a background layer behind the
+     text. The gaps between panels are therefore genuinely transparent — the waves there match the
+     surroundings exactly because it's the same fixed background layer. */
   .scroll-paper.inkwave-gapped {
-    padding-top: 0;
     background-color: transparent;
-    background-image: repeating-linear-gradient(
-      to bottom,
-      #f7f2e8 0,
-      #f7f2e8 var(--page-h, 1123px),
-      transparent var(--page-h, 1123px),
-      transparent calc(var(--page-h, 1123px) + 56px)
-    );
+    background-image: none;
   }
+  /* Background layer holding the page panels — behind the text (container is z-index 1). */
+  .inkwave-sheets {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+  }
+  /* One real A4 sheet: its own rounded corners + 4-side drop shadow (discrete-page look). Positioned
+     (top/height) by the pagination extension at each measured page region. */
+  .inkwave-sheet {
+    position: absolute;
+    left: 0;
+    right: 0;
+    background-color: #f7f2e8;
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='400' height='400' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E");
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(80, 50, 10, 0.22), 0 2px 6px rgba(80, 50, 10, 0.18);
+  }
+  /* The gap widget just reserves the vertical space between sheets and hosts the centred page
+     number at its bottom; the background shows through it (no parchment of its own). */
   .inkwave-page-gap { position: relative; user-select: none; }
-  /* Transparent band over the gradient's gap → the background waves show through (they match because
-     it's literally the same fixed background layer). Just hosts the centred page number. */
   .inkwave-page-gap-band {
     position: absolute;
     bottom: 0;
     left: 0;
     right: 0;
-    margin-left: calc(50% - 50vw);
-    width: 100vw;
     display: flex;
     align-items: center;
     justify-content: center;
   }
   .inkwave-page-gap-band > span { font-family: 'EB Garamond', Georgia, serif; color: #7c5aa6; font-size: 0.9rem; }
-  /* Rounded + shadowed bottom edge of the page ABOVE the gap (sheet width, centred). */
-  .inkwave-page-gap-band::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    width: min(210mm, calc(100vw - 2rem));
-    height: 10px;
-    background-color: #f7f2e8;
-    border-radius: 0 0 8px 8px;
-    box-shadow: 0 7px 11px -5px rgba(80, 50, 10, 0.3);
-  }
-  /* Rounded + shadowed top edge of the page BELOW the gap. */
-  .inkwave-page-gap-band::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    width: min(210mm, calc(100vw - 2rem));
-    height: 10px;
-    background-color: #f7f2e8;
-    border-radius: 8px 8px 0 0;
-    box-shadow: 0 -7px 11px -5px rgba(80, 50, 10, 0.3);
-  }
   .inkwave-page-num { text-align: center; padding: 10px 0 28px; font-family: 'EB Garamond', Georgia, serif; color: #9b5ccc; font-size: 0.9rem; user-select: none; }
 
   /* On a phone: just the paper, no background. Drop the aqua + waves and the surface padding so the
