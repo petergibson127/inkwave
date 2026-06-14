@@ -145,7 +145,7 @@ type PickerNS = {
   DocsView: new (viewId: unknown) => { setSelectFolderEnabled: (b: boolean) => any; setMimeTypes: (m: string) => any }
   ViewId: { FOLDERS: unknown }
   PickerBuilder: new () => { setOAuthToken: (t: string) => any; setDeveloperKey: (k: string) => any; addView: (v: unknown) => any; setCallback: (cb: (d: { action: string; docs?: Array<{ id: string; name: string }> }) => void) => any; build: () => Picker }
-  Action: { PICKED: string; CANCEL: string }
+  Action: { PICKED: string; CANCEL: string; LOADED: string }
 }
 
 let pickerLoad: Promise<void> | null = null
@@ -185,12 +185,19 @@ export async function pickGoogleDriveFolder(): Promise<{ id: string; name: strin
       .setOrigin(`${window.location.protocol}//${window.location.host}`)
       .addView(view)
       .setCallback((data: { action: string; docs?: Array<{ id: string; name: string }> }) => {
-        // Match the string too — some Picker builds don't expose Action.* the same way.
-        if ((data.action === picker.Action.PICKED || data.action === 'picked') && data.docs?.[0]) {
-          setChosenGDriveFolder(data.docs[0].id)
-          resolve({ id: data.docs[0].id, name: data.docs[0].name })
-        } else if (data.action === picker.Action.CANCEL || data.action === 'cancel') {
-          resolve(null)
+        // The Picker does NOT reliably auto-dismiss on selection — without this the dim backdrop
+        // just sits there ("goes light, doesn't progress"). Hide + tear it down on every terminal
+        // action. (LOADED fires first when the dialog mounts — ignore it.)
+        const action = data.action
+        console.debug('[inkwave] picker callback', action, data)
+        if (action === 'loaded' || action === picker.Action.LOADED) return
+        try { p.setVisible(false) } catch { /* already gone */ }
+        const doc = data.docs?.[0]
+        if ((action === picker.Action.PICKED || action === 'picked') && doc) {
+          setChosenGDriveFolder(doc.id)
+          resolve({ id: doc.id, name: doc.name })
+        } else {
+          resolve(null) // cancel, or picked-with-no-doc
         }
       })
       .build()
