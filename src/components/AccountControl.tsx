@@ -1,7 +1,8 @@
 import { SignedIn, SignedOut, useUser, useClerk } from '@clerk/clerk-react'
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { authEnabled } from '../auth/config'
-import { useCadenceTier, startCheckout, refreshEntitlement } from '../auth/entitlement'
+import { useCadenceTier, stripeClientSecret, paypalApproveUrl, refreshEntitlement } from '../auth/entitlement'
 
 // On sign-in, ping the webhook-free email capture once per user (the server reads the real email
 // from Clerk and upserts it to Supabase). Fails silently if unconfigured. No webhook required.
@@ -20,9 +21,7 @@ function ProfileSync() {
   return null
 }
 
-// A menu row styled to match the OptionsMenu items.
-function Row({ onClick, disabled, children, muted }: { onClick?: () => void; disabled?: boolean; children: React.ReactNode; muted?: boolean }) {
-  if (muted) return <div className="px-4 py-1.5 text-xs text-stone-400">{children}</div>
+function Row({ onClick, disabled, children }: { onClick?: () => void; disabled?: boolean; children: React.ReactNode }) {
   return (
     <button type="button" role="menuitem" disabled={disabled} onClick={onClick}
       className="w-full text-left px-4 py-1.5 hover:bg-stone-100 hover:text-[#5c2d8a] transition-colors disabled:opacity-50">
@@ -31,53 +30,117 @@ function Row({ onClick, disabled, children, muted }: { onClick?: () => void; dis
   )
 }
 
-// Poll entitlement until it flips active (the webhook lands a beat after payment) or the popup
-// closes / we time out. Runs detached from the menu, so it survives the menu closing.
-function pollAfterPayment(popup: Window | null) {
+// Poll entitlement until it flips active (the webhook lands a beat after payment), then run onActive.
+// Detached from the menu/modal so it survives them closing.
+function pollAfterPayment(onActive: () => void) {
   const started = Date.now()
   const timer = setInterval(async () => {
     const active = await refreshEntitlement()
-    const expired = Date.now() - started > 5 * 60 * 1000
-    if (active || (popup && popup.closed) || expired) {
+    if (active || Date.now() - started > 5 * 60 * 1000) {
       clearInterval(timer)
-      if (active) { try { popup?.close() } catch { /* cross-origin */ } }
+      if (active) onActive()
     }
   }, 2500)
 }
 
-// Signed-in account rows: Insignia status / get-it (popup checkout), Manage account, Sign out.
-function AccountItems({ onClose }: { onClose: () => void }) {
-  const clerk = useClerk()
-  const { active } = useCadenceTier()
-  const [busy, setBusy] = useState(false)
+// ─── Stripe.js loader (script tag — no npm package) ─────────────────────────────
+type StripeEmbedded = { mount: (el: HTMLElement) => void; destroy: () => void }
+type StripeObj = { initEmbeddedCheckout: (o: { clientSecret: string; onComplete?: () => void }) => Promise<StripeEmbedded> }
+let stripeJs: Promise<StripeObj | null> | null = null
+function loadStripe(pk: string): Promise<StripeObj | null> {
+  if (stripeJs) return stripeJs
+  stripeJs = new Promise((resolve, reject) => {
+    const w = window as unknown as { Stripe?: (k: string) => StripeObj }
+    if (w.Stripe) return resolve(w.Stripe(pk))
+    const s = document.createElement('script')
+    s.src = 'https://js.stripe.com/v3'
+    s.async = true
+    s.onload = () => resolve(w.Stripe ? w.Stripe(pk) : null)
+    s.onerror = () => reject(new Error('Stripe.js load failed'))
+    document.head.appendChild(s)
+  })
+  return stripeJs
+}
 
-  function pay(provider: 'stripe' | 'paypal') {
-    // Open the popup SYNCHRONOUSLY (inside the click) so it isn't blocked, then point it at the
-    // provider URL once we have it. The app + this menu stay put — no full-page redirect.
-    const popup = window.open('about:blank', 'inkwave-pay', 'width=480,height=760')
+// In-page Insignia checkout — opens from the menu. Shows the price + two options; "Pay with card"
+// mounts Stripe's embedded Checkout inline; "Pay with PayPal" opens PayPal's own approval popup
+// (PayPal can't embed). × closes it. On completion it polls entitlement and closes itself.
+function InsigniaModal({ onClose }: { onClose: () => void }) {
+  const PK = import.meta.env?.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined
+  const [stage, setStage] = useState<'choose' | 'card' | 'done'>('choose')
+  const [busy, setBusy] = useState(false)
+  const cardRef = useRef<HTMLDivElement>(null)
+  const checkoutRef = useRef<StripeEmbedded | null>(null)
+
+  useEffect(() => {
+    if (stage !== 'card' || !PK) return
+    let cancelled = false
+    void (async () => {
+      const secret = await stripeClientSecret()
+      const stripe = secret ? await loadStripe(PK) : null
+      if (!secret || !stripe || cancelled || !cardRef.current) return
+      const checkout = await stripe.initEmbeddedCheckout({
+        clientSecret: secret,
+        onComplete: () => { setStage('done'); pollAfterPayment(onClose) },
+      })
+      if (cancelled || !cardRef.current) { try { checkout.destroy() } catch { /* noop */ }; return }
+      checkoutRef.current = checkout
+      checkout.mount(cardRef.current)
+    })()
+    return () => { cancelled = true; try { checkoutRef.current?.destroy() } catch { /* noop */ } checkoutRef.current = null }
+  }, [stage, PK, onClose])
+
+  function payPaypal() {
     setBusy(true)
-    void startCheckout(provider).then((url) => {
+    void paypalApproveUrl().then((url) => {
       setBusy(false)
-      if (!url) { try { popup?.close() } catch { /* noop */ }; clerk.openSignIn(); return }
-      if (popup) popup.location.href = url
-      pollAfterPayment(popup)
+      if (!url) return
+      window.open(url, 'inkwave-pay', 'width=460,height=820')
+      pollAfterPayment(onClose)
       onClose()
     })
   }
 
+  const btn = 'border border-[#5c2d8a]/40 rounded-md py-2 text-stone-700 hover:bg-[#5c2d8a] hover:text-white transition-colors disabled:opacity-50'
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onMouseDown={onClose}>
+      <div className="absolute inset-0 bg-stone-900/20" aria-hidden="true" />
+      <div role="dialog" aria-modal="true" aria-label="Insignia" onMouseDown={(e) => e.stopPropagation()}
+        className="relative bg-white rounded-xl shadow-xl p-6 w-full max-w-md max-h-[85vh] overflow-auto font-serif">
+        <button type="button" aria-label="Close" onClick={onClose}
+          className="absolute top-3 right-3 text-stone-400 hover:text-[#5c2d8a] text-2xl leading-none">×</button>
+        {stage === 'choose' && (
+          <div className="text-center">
+            <h2 className="text-lg text-[#5c2d8a]">Insignia</h2>
+            <p className="text-sm text-stone-500 mb-5">$15 AUD per month</p>
+            <div className="flex flex-col gap-2 max-w-[16rem] mx-auto">
+              <button type="button" className={btn} onClick={() => setStage('card')}>Pay with card</button>
+              <button type="button" className={btn} disabled={busy} onClick={payPaypal}>Pay with PayPal</button>
+            </div>
+            {!PK && <p className="text-xs text-amber-600 mt-4">Card checkout needs VITE_STRIPE_PUBLISHABLE_KEY in .env.</p>}
+          </div>
+        )}
+        {stage === 'card' && <div ref={cardRef} className="min-h-[20rem]" />}
+        {stage === 'done' && <p className="text-center text-[#5c2d8a] py-10">✓ Payment received — activating Insignia…</p>}
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+// Signed-in account rows.
+function AccountItems({ onClose }: { onClose: () => void }) {
+  const clerk = useClerk()
+  const { active } = useCadenceTier()
+  const [showInsignia, setShowInsignia] = useState(false)
   return (
     <>
-      {active ? (
-        <div className="px-4 py-1.5 text-[#5c2d8a]">✓ Insignia active</div>
-      ) : (
-        <>
-          <Row muted>Insignia — $15/mo</Row>
-          <Row disabled={busy} onClick={() => pay('stripe')}>Pay with card</Row>
-          <Row disabled={busy} onClick={() => pay('paypal')}>Pay with PayPal</Row>
-        </>
-      )}
+      {active
+        ? <div className="px-4 py-1.5 text-[#5c2d8a]">✓ Insignia active</div>
+        : <Row onClick={() => setShowInsignia(true)}>Insignia</Row>}
       <Row onClick={() => { onClose(); clerk.openUserProfile() }}>Manage account</Row>
       <Row onClick={() => { onClose(); void clerk.signOut({ redirectUrl: '/' }) }}>Sign out</Row>
+      {showInsignia && <InsigniaModal onClose={() => { setShowInsignia(false); onClose() }} />}
     </>
   )
 }
