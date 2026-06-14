@@ -85,7 +85,9 @@
      the extension at the gap offset) that the paint() pass measures to lay the panels around. */
   /* display:block so the inline <span> still reserves the full vertical gap (see gapEl for why it's
      a span, not a div — a div mid-paragraph is invalid HTML and scrambles the caret). */
-  .inkwave-page-gap { display: block; position: relative; user-select: none; }
+  /* cursor:default — the gap (and its margins) is not text, so show the arrow like the area above
+     the page, not the editor's text I-beam. */
+  .inkwave-page-gap { display: block; position: relative; user-select: none; cursor: default; }
   .inkwave-page-gap-band { display: block; position: absolute; left: 0; right: 0; }
   /* Page number, pinned to each sheet's bottom margin (a footer) — never in the gap. */
   .inkwave-sheet-num {
