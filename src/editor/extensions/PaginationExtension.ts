@@ -23,11 +23,15 @@ export interface PaginationOptions { enabled: boolean }
 // transparent gap is and lay the parchment sheet panels around it. No visible parts of its own —
 // the panels paint the parchment, the page number is a footer inside each panel.
 function gapEl(botMargin: number, topMargin: number): HTMLElement {
-  const el = document.createElement('div')
+  // SPAN, not div: a page break can land mid-paragraph, and a block-level <div> is invalid as a
+  // child of <p> — the browser then reparents/splits the paragraph in the rendered DOM, scrambling
+  // caret placement (the caret jumps across the gap, edits land on the wrong page). A <span> is valid
+  // phrasing content inside <p>; CSS gives it `display:block` so it still reserves the vertical gap.
+  const el = document.createElement('span')
   el.className = 'inkwave-page-gap'
   el.style.height = `${Math.round(botMargin + GAP + topMargin)}px`
   el.contentEditable = 'false'
-  const band = document.createElement('div')
+  const band = document.createElement('span')
   band.className = 'inkwave-page-gap-band'
   band.style.top = `${Math.round(botMargin)}px`
   band.style.height = `${GAP}px`
@@ -96,7 +100,12 @@ function compute(view: EditorView, pageH: number): { set: DecorationSet; sig: st
       // Parchment left below the last line on this page (its bottom margin), at least MARGIN_BOTTOM.
       const botMargin = Math.max(MARGIN_BOTTOM, pageH - MARGIN_TOP - used)
       const at = lines[i].pos
-      decos.push(Decoration.widget(at, () => gapEl(botMargin, MARGIN_TOP), { side: -1, key: `gap-${pageNo}-${at}` }))
+      // ignoreSelection: the gap is a TALL block widget sitting mid-paragraph; without this,
+      // ProseMirror folds its height into cursor/selection coordinate mapping, so a click at the end
+      // of the page-above jumps the caret past the gap to the start of the next page (and edits then
+      // land on the wrong page, which read as "deletions don't reflow"). Ignoring it for selection
+      // keeps the caret on the text it belongs to. stopEvent: clicks on the gap aren't editor input.
+      decos.push(Decoration.widget(at, () => gapEl(botMargin, MARGIN_TOP), { side: -1, ignoreSelection: true, stopEvent: () => true, key: `gap-${pageNo}-${at}` }))
       sig.push(`${at}:${Math.round(botMargin)}`)
       pageNo++
       used = 0
