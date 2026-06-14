@@ -90,24 +90,23 @@ export function CaretGutter(
     const at = view.posAtCoords({ left: edgeX(rect), top: e.clientY })
     if (!at) return
     let anchor = at.pos
-    let softWrap = false
+    let fixAffinity = side === 'left' && IS_WEBKIT
     if (side === 'right') {
-      const doc = view.state.doc
-      // Only correct a SOFT WRAP: there posAtCoords lands PAST the wrap space at the start of the
-      // next visual line, so step back over the trailing whitespace to sit after this line's last
-      // word. But at a GENUINE line end — a hard break (Enter) or the paragraph end — a trailing
-      // space belongs to this line, so keep the caret AFTER it (word + space). Distinguish by what
-      // follows the landing position: more inline text = soft wrap; a hardBreak or block end = end.
-      const $at = doc.resolve(anchor)
-      softWrap = $at.parentOffset < $at.parent.content.size && $at.nodeAfter?.type.name !== 'hardBreak'
-      if (softWrap) {
+      // Leave the caret at posAtCoords — after the line's last word AND its trailing space (word +
+      // space) — for BOTH soft wraps mid-paragraph and real line ends. The ONE exception is a PAGE
+      // GAP: there posAtCoords landed on the next PAGE (it renders far below the click), so step back
+      // over the wrap whitespace to the end of the page above and force the caret onto it (a wrap
+      // boundary renders on the lower line otherwise).
+      let isPageGap = false
+      try { isPageGap = view.coordsAtPos(at.pos).top - e.clientY > 120 } catch { /* keep false */ }
+      if (isPageGap) {
+        const doc = view.state.doc
         let guard = 0
         while (anchor > 0 && guard++ < 200 && /\s/.test(doc.textBetween(anchor - 1, anchor))) anchor--
+        fixAffinity = true
       }
     }
-    // Affinity fix only where it's both real (WebKit) and needed (a soft wrap, or any left click);
-    // a real line end renders natively, so fixing it there would land one char short.
-    placeCaret(anchor, IS_WEBKIT && (side === 'left' || softWrap))
+    placeCaret(anchor, fixAffinity)
 
     // Dragging out of the margin extends a selection from the line edge to the pointer.
     const strip = e.currentTarget as HTMLElement

@@ -219,10 +219,19 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
           let p = pos
           let guard = 0
           while (p > 1 && guard++ < 50 && /\s/.test(doc.textBetween(p - 1, p))) p--
-          if (p !== pos && p > 0) {
-            view.dispatch(view.state.tr.setSelection(TextSelection.create(doc, p)))
-            return true
+          if (p === pos || p <= 0) return false
+          view.dispatch(view.state.tr.setSelection(TextSelection.create(doc, p)))
+          // The stepped-back position is a wrap boundary; the browser would render the caret on the
+          // lower line (next page). Force the DOM caret onto the page above from a point on its line.
+          const c = view.coordsAtPos(p, -1)
+          const range = document.caretRangeFromPoint?.(c.left - 1, (c.top + c.bottom) / 2)
+          if (range && view.dom.contains(range.startContainer)) {
+            range.collapse(true)
+            const sel = window.getSelection()
+            sel?.removeAllRanges()
+            sel?.addRange(range)
           }
+          return true
         } catch { /* coords unavailable — let ProseMirror place it */ }
         return false
       },
