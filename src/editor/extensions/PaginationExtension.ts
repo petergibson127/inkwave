@@ -136,7 +136,7 @@ export const PaginationExtension = Extension.create<PaginationOptions>({
           if (!enabled) return {}
           let raf = 0
           let paintRaf = 0
-          let lastSig = ''
+          let lastInputSig = '' // doc size + page height — only re-measure when these change
           let sheet: HTMLElement | null = null
           let layer: HTMLElement | null = null
           let observed = false
@@ -205,8 +205,24 @@ export const PaginationExtension = Extension.create<PaginationOptions>({
               sheet.classList.add('inkwave-gapped')
               sheet.style.paddingTop = `${MARGIN_TOP}px` // page-1 top margin matches the rest
             }
-            const { set, sig } = compute(view, pageH)
-            if (sig !== lastSig) { lastSig = sig; view.dispatch(view.state.tr.setMeta(KEY, set)) }
+            // Only re-measure when something that affects layout changed (text edit → doc size; zoom/
+            // resize → pageH). Our own setMeta dispatches below don't change these, so they can't loop.
+            const inputSig = `${view.state.doc.content.size}:${Math.round(pageH)}`
+            if (inputSig === lastInputSig) { schedulePaint(); return }
+            lastInputSig = inputSig
+
+            // The gap widgets are display:block, so they FORCE line breaks — which means a word can't
+            // wrap back across a page boundary, and measuring the line layout with them present shows
+            // the forced break, not the natural wrap (so deletions never reflowed back). Fix: clear
+            // the gaps first so the DOM reflows to its NATURAL wrapping, measure THAT, then re-add the
+            // gaps. All synchronous within this one rAF tick, so the cleared state never paints (no
+            // flicker) — getClientRects forces layout, not paint.
+            const cur = KEY.getState(view.state)
+            if (cur && cur !== DecorationSet.empty) {
+              view.dispatch(view.state.tr.setMeta(KEY, DecorationSet.empty).setMeta('addToHistory', false))
+            }
+            const { set } = compute(view, pageH)
+            view.dispatch(view.state.tr.setMeta(KEY, set).setMeta('addToHistory', false))
             // Re-measure & reposition the sheet panels after the decorations land (DOM settled).
             schedulePaint()
           }
