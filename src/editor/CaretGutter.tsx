@@ -81,12 +81,18 @@ export function CaretGutter(
     if (!at) return
     let anchor = at.pos
     if (side === 'right') {
-      // At a wrapped line's right edge posAtCoords lands PAST the wrap space (= start of the
-      // next line); step back over trailing whitespace so the caret sits after this line's
-      // last word. (No-op on the last line, which has no trailing wrap space.)
       const doc = view.state.doc
-      let guard = 0
-      while (anchor > 0 && guard++ < 200 && /\s/.test(doc.textBetween(anchor - 1, anchor))) anchor--
+      // Only correct a SOFT WRAP: there posAtCoords lands PAST the wrap space at the start of the
+      // next visual line, so step back over the trailing whitespace to sit after this line's last
+      // word. But at a GENUINE line end — a hard break (Enter) or the paragraph end — a trailing
+      // space belongs to this line, so keep the caret AFTER it. Distinguish by what follows the
+      // landing position: more inline text = soft wrap; a hardBreak or block end = real line end.
+      const $at = doc.resolve(anchor)
+      const softWrap = $at.parentOffset < $at.parent.content.size && $at.nodeAfter?.type.name !== 'hardBreak'
+      if (softWrap) {
+        let guard = 0
+        while (anchor > 0 && guard++ < 200 && /\s/.test(doc.textBetween(anchor - 1, anchor))) anchor--
+      }
     }
     placeCaret(anchor) // a plain click leaves this collapsed caret (with the affinity fix)
 
