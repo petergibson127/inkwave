@@ -10,7 +10,7 @@ const devApi: PluginOption = {
   name: 'dev-api',
   apply: 'serve',
   configureServer(server) {
-    const route = async (raw: string, path: string) => {
+    const route = async (raw: string, path: string, authorization?: string) => {
       const body = JSON.parse(raw || '{}')
       // @ts-expect-error - untyped Node-only ESM modules (live in api/, outside the src TS project)
       const ots = () => import('./api/_ots-core.mjs')
@@ -20,7 +20,7 @@ const devApi: PluginOption = {
       const profile = () => import('./api/sync-profile.mjs')
       if (path === '/api/ots') return (await ots()).handleOts(body)
       if (path === '/api/session') return (await prov()).handleSession(body)
-      if (path === '/api/sign') return (await prov()).handleSign(body)
+      if (path === '/api/sign') return (await prov()).handleSign(body, authorization)
       if (path === '/api/sync-profile') return (await profile()).syncProfile(body)
       throw new Error('not found')
     }
@@ -83,10 +83,11 @@ const devApi: PluginOption = {
         req.on('end', async () => {
           try {
             res.setHeader('content-type', 'application/json')
-            res.end(JSON.stringify(await route(raw, path)))
+            res.end(JSON.stringify(await route(raw, path, req.headers.authorization as string | undefined)))
           } catch (err) {
-            res.statusCode = (err as Error)?.message === 'bad request' ? 400 : 502
-            res.end(JSON.stringify({ error: 'api failed' }))
+            const msg = (err as Error)?.message
+            res.statusCode = msg === 'bad request' ? 400 : msg === 'subscription required' ? 402 : 502
+            res.end(JSON.stringify({ error: msg === 'subscription required' ? 'subscription required' : 'api failed' }))
           }
         })
       })

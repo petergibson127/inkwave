@@ -111,9 +111,20 @@ export async function handleSession(body) {
   if (typeof body?.docId !== 'string') throw new Error('bad request')
   return openSession(body.docId)
 }
-export async function handleSign(body) {
+export async function handleSign(body, authorization) {
   for (const k of ['sessionToken', 'docId', 'prevHash', 'contentHash', 'kicksHash']) {
     if (typeof body?.[k] !== 'string') throw new Error('bad request')
+  }
+  // Insignia (paid) gate: a cadenceDigest may only be signed for an active subscriber. The free
+  // tier (no cadenceDigest) is unaffected and never touches Clerk/Supabase. Lazy-imported so the
+  // billing deps load only when a cadence digest is actually presented.
+  if (body.cadenceDigest) {
+    const [{ userFromAuth }, { isSubscribed }] = await Promise.all([
+      import('./_auth.mjs'),
+      import('./_billing-core.mjs'),
+    ])
+    const user = await userFromAuth(authorization)
+    if (!user || !(await isSubscribed(user.userId))) throw new Error('subscription required')
   }
   return signPeriod(body)
 }

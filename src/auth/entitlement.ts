@@ -11,7 +11,7 @@ type ClerkLike = { session?: { getToken?: () => Promise<string | null> } }
 let cached = false
 let inflight: Promise<boolean> | null = null
 
-async function clerkToken(): Promise<string | null> {
+export async function getClerkToken(): Promise<string | null> {
   if (typeof window === 'undefined') return null
   const clerk = (window as unknown as { Clerk?: ClerkLike }).Clerk
   try {
@@ -27,7 +27,7 @@ export async function refreshEntitlement(): Promise<boolean> {
   if (inflight) return inflight
   inflight = (async () => {
     try {
-      const token = await clerkToken()
+      const token = await getClerkToken()
       const res = await fetch('/api/me', { headers: token ? { Authorization: `Bearer ${token}` } : {} })
       const data = (await res.json()) as { cadence?: boolean }
       cached = !!data.cadence
@@ -48,7 +48,7 @@ export function cadenceTierActive(): boolean {
 
 /** Start a checkout: ask the server for a provider URL (authed) → caller redirects there. */
 export async function startCheckout(provider: 'stripe' | 'paypal'): Promise<string | null> {
-  const token = await clerkToken()
+  const token = await getClerkToken()
   if (!token) return null // not signed in — caller should send them to /login
   const path = provider === 'stripe' ? '/api/stripe-checkout' : '/api/paypal-subscribe'
   try {
