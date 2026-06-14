@@ -86,8 +86,8 @@ const devApi: PluginOption = {
             res.end(JSON.stringify(await route(raw, path, req.headers.authorization as string | undefined)))
           } catch (err) {
             const msg = (err as Error)?.message
-            res.statusCode = msg === 'bad request' ? 400 : msg === 'subscription required' ? 402 : 502
-            res.end(JSON.stringify({ error: msg === 'subscription required' ? 'subscription required' : 'api failed' }))
+            res.statusCode = msg === 'bad request' ? 400 : msg === 'invalid session' ? 401 : msg === 'subscription required' ? 402 : 502
+            res.end(JSON.stringify({ error: msg === 'subscription required' ? 'subscription required' : msg === 'invalid session' ? 'invalid session' : 'api failed' }))
           }
         })
       })
