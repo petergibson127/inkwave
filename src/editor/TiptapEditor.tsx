@@ -34,6 +34,7 @@ import { cadenceTierActive, getClerkToken } from '../auth/entitlement'
 import { buildExportBundle, bundleFilename, downloadBundle } from '../provenance/bundle'
 import { fileSaveAvailable, pickSaveFile, getSaveFileHandle, getSaveFileName, writeBundleToFile, readLocalHeartbeat } from '../storage/folder'
 import { oneDriveConfigured, oneDriveAccount, syncToOneDrive, startOneDriveSignIn, oneDriveSyncPending, clearOneDriveSyncPending, oneDrivePath, setChosenFolder, addRecentFolder, oneDriveFilename, setOneDriveFilename, readRemoteHeartbeat, type OneDriveFolder } from '../storage/onedrive'
+import { googleDriveConfigured, startGoogleDriveSignIn, syncToGoogleDrive } from '../storage/gdrive'
 import { isOtherDeviceActive } from '../sync/presence'
 import { SyncStatus } from '../components/SyncStatus'
 import { OneDriveFolderPicker } from '../components/OneDriveFolderPicker'
@@ -103,6 +104,11 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   const [fileName, setFileName] = useState<string | null>(null) // linked local save file name (Chromium)
   const [lastFileSave, setLastFileSave] = useState<number | null>(null)
   const [oneDriveUrl, setOneDriveUrl] = useState<string | null>(null) // synced file's webUrl (open in folder)
+  // Google Drive sync (Firefox/Safari alternative to OneDrive).
+  const gdriveActiveRef = useRef(false)
+  const [gdriveActive, setGdriveActive] = useState(false)
+  const [lastGdriveSync, setLastGdriveSync] = useState<number | null>(null)
+  const [gdriveUrl, setGdriveUrl] = useState<string | null>(null)
   const zoom = useZoomScale() // counter page zoom so the toolbar stays a constant size
   const [otherDevice, setOtherDevice] = useState(false) // another device looks active on this doc
   const [conflictDismissed, setConflictDismissed] = useState(false)
@@ -503,6 +509,12 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
         .catch(() => { folderActiveRef.current = false; setNeedsReconnect(true) })
     }
     if (oneDriveActiveRef.current) scheduleOneDriveSync()
+    if (gdriveActiveRef.current) {
+      void listSnapshots(docRef.current.id)
+        .then((snaps) => syncToGoogleDrive(docRef.current, snaps))
+        .then((r) => { if (r.ok) { setLastGdriveSync(Date.now()); setGdriveUrl(r.webUrl) } })
+        .catch(() => {})
+    }
   }
 
   // Throttled OneDrive write: at most one PUT per interval, with a trailing flush so the final state
@@ -538,6 +550,21 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     } else {
       // Signed in but the token/scope isn't valid (e.g. the new Files.ReadWrite consent) → re-consent.
       await startOneDriveSignIn()
+    }
+  }
+
+  // Google Drive: sign in (interactive popup — must be from a click) then sync. Once active,
+  // mirrorIfActive() keeps it updated as you write.
+  async function syncGoogleDrive() {
+    const ok = await startGoogleDriveSignIn()
+    if (!ok) return
+    const snaps = await listSnapshots(docRef.current.id)
+    const r = await syncToGoogleDrive(docRef.current, snaps)
+    if (r.ok) {
+      gdriveActiveRef.current = true
+      setGdriveActive(true)
+      setLastGdriveSync(Date.now())
+      setGdriveUrl(r.webUrl)
     }
   }
 
@@ -888,6 +915,19 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
               <SyncStatus compact={isTouch} label="🗀 Save to a folder" synced={false} onClick={() => void saveToFile()} />
             )
           }
+          // Google Drive (Firefox/Safari) takes the indicator once the writer has connected it.
+          if (gdriveActive) {
+            return (
+              <SyncStatus
+                compact={isTouch}
+                label={lastGdriveSync ? '✓ Synced to Google Drive' : '▴ Sync pending'}
+                synced={!!lastGdriveSync}
+                lastSync={lastGdriveSync}
+                webUrl={gdriveUrl}
+                tooltip="Google Drive"
+              />
+            )
+          }
           if (!oneDriveConfigured()) return null
           return oneDriveAcct ? (
             <SyncStatus compact={isTouch}
@@ -976,6 +1016,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
                 onChooseOneDriveFolder={chooseOneDriveFolder}
                 onSaveAsOneDrive={saveAsOneDrive}
                 oneDriveAccount={oneDriveAcct}
+                onSyncGoogleDrive={googleDriveConfigured() ? syncGoogleDrive : undefined}
               />
             </div>
             )}
