@@ -852,7 +852,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
             }
             return fileName ? (
               <SyncStatus
-                label={lastFileSave ? '✓ Synced to folder' : '🗀 Syncing to folder…'}
+                label={lastFileSave ? '✓ Synced to folder' : '🗀 Sync pending'}
                 synced={!!lastFileSave}
                 path={fileName}
                 lastSync={lastFileSave}
@@ -867,7 +867,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
           if (!oneDriveConfigured()) return null
           return oneDriveAcct ? (
             <SyncStatus
-              label={lastSync ? '✓ Synced to OneDrive' : '☁ not yet syncing'}
+              label={lastSync ? '✓ Synced to OneDrive' : '☁ Sync pending'}
               synced={!!lastSync}
               path={oneDrivePath(doc)}
               lastSync={lastSync}
