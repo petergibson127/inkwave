@@ -91,11 +91,14 @@ function InsigniaModal({ onClose }: { onClose: () => void }) {
   }, [stage, PK, onClose])
 
   function payPaypal() {
+    // Open the popup SYNCHRONOUSLY (inside the click) so it isn't blocked, then point it at PayPal's
+    // approval URL once we have it. (Opening after the await = blocked by the popup blocker.)
+    const popup = window.open('about:blank', 'inkwave-pay', 'width=460,height=820')
     setBusy(true)
     void paypalApproveUrl().then((url) => {
       setBusy(false)
-      if (!url) return
-      window.open(url, 'inkwave-pay', 'width=460,height=820')
+      if (!url) { try { popup?.close() } catch { /* noop */ } return }
+      if (popup) popup.location.href = url
       pollAfterPayment(onClose)
       onClose()
     })
@@ -138,7 +141,7 @@ function AccountItems({ onClose }: { onClose: () => void }) {
       {active
         ? <div className="px-4 py-1.5 text-[#5c2d8a]">✓ Insignia active</div>
         : <Row onClick={() => setShowInsignia(true)}>Insignia</Row>}
-      <Row onClick={() => { onClose(); clerk.openUserProfile() }}>Manage account</Row>
+      <Row onClick={() => { onClose(); clerk.openUserProfile() }}>Account</Row>
       <Row onClick={() => { onClose(); void clerk.signOut({ redirectUrl: '/' }) }}>Sign out</Row>
       {showInsignia && <InsigniaModal onClose={() => { setShowInsignia(false); onClose() }} />}
     </>
