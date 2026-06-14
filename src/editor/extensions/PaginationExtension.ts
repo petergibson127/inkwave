@@ -231,12 +231,24 @@ export const PaginationExtension = Extension.create<PaginationOptions>({
           }
           const schedule = () => { if (!raf) raf = requestAnimationFrame(recompute) }
           schedule()
+          // Web fonts (EB Garamond) load AFTER first paint and reflow the text, moving every line —
+          // but a font swap changes neither the doc size nor the page width, so the inputSig guard
+          // would skip re-measuring (the break sits wrong until an edit nudges it). Force a fresh
+          // measure once fonts are ready (and on any later font load).
+          let destroyed = false
+          const fontCb = () => { if (!destroyed) { lastInputSig = ''; schedule() } }
+          if (typeof document !== 'undefined' && document.fonts) {
+            document.fonts.ready.then(fontCb).catch(() => {})
+            document.fonts.addEventListener?.('loadingdone', fontCb)
+          }
           return {
             update: schedule,
             destroy() {
+              destroyed = true
               ro?.disconnect()
               if (raf) cancelAnimationFrame(raf)
               if (paintRaf) cancelAnimationFrame(paintRaf)
+              document.fonts?.removeEventListener?.('loadingdone', fontCb)
               layer?.remove()
               sheet?.classList.remove('inkwave-gapped')
               if (sheet) sheet.style.paddingTop = ''

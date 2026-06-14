@@ -63,7 +63,9 @@ export function CaretGutter(
     if (!fixAffinity) return // non-WebKit (or a real line end): native placement is already correct
     try {
       const c = view.coordsAtPos(pos, side === 'left' ? 1 : -1)
-      const gx = side === 'left' ? c.left + 2 : c.left - 2
+      // right: probe AT the caret x (the after-space position at the end of the page above), not 2px
+      // left of it — that would land one char short. left: just inside the first glyph.
+      const gx = side === 'left' ? c.left + 2 : c.left
       const gy = (c.top + c.bottom) / 2
       const d = document as CaretDoc
       let range: Range | null = null
@@ -99,12 +101,10 @@ export function CaretGutter(
       // boundary renders on the lower line otherwise).
       let isPageGap = false
       try { isPageGap = view.coordsAtPos(at.pos).top - e.clientY > 120 } catch { /* keep false */ }
-      if (isPageGap) {
-        const doc = view.state.doc
-        let guard = 0
-        while (anchor > 0 && guard++ < 200 && /\s/.test(doc.textBetween(anchor - 1, anchor))) anchor--
-        fixAffinity = true
-      }
+      // Keep the caret at posAtCoords (after word + space) like every other line; for a page gap its
+      // doc position straddles the boundary and renders on the next page, so force it to render at
+      // the end of the page ABOVE instead (the affinity fix below).
+      if (isPageGap) fixAffinity = true
     }
     placeCaret(anchor, fixAffinity)
 
