@@ -13,12 +13,6 @@ import { TextSelection } from '@tiptap/pm/state'
 
 type Side = 'left' | 'right'
 
-// The caret affinity re-placement below is a WebKit-only fix for wrap-boundary caret rendering. On
-// Chromium/Gecko it's unnecessary and harmful — it probes 2px inside the last glyph and lands one
-// character short on narrow finals (comma, s). Gate it to WebKit so other engines place natively.
-const IS_WEBKIT = typeof navigator !== 'undefined'
-  && /^((?!chrome|android|crios|fxios|edg).)*safari/i.test(navigator.userAgent)
-
 type CaretDoc = Document & {
   caretRangeFromPoint?: (x: number, y: number) => Range | null
   caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null
@@ -54,18 +48,12 @@ export function CaretGutter(
   // wants the lower line (bias +1, just right of the caret x), right wants the upper line
   // (bias -1, just left of it). A Range from a point there carries that line's affinity,
   // exactly as a real click does, for any node structure.
-  function placeCaret(pos: number, fixAffinity: boolean) {
+  function placeCaret(pos: number) {
     const view = editor.view
-    // scrollIntoView:false — focus() would otherwise scroll `pos` into view before the affinity fix
-    // below re-places the caret, so at a page boundary the view visibly jumps to the next page and
-    // back. We place the caret at an already-visible click point, so no scroll is needed.
-    editor.chain().focus(undefined, { scrollIntoView: false }).setTextSelection(pos).run()
-    if (!fixAffinity) return // non-WebKit (or a real line end): native placement is already correct
+    editor.chain().focus().setTextSelection(pos).run()
     try {
       const c = view.coordsAtPos(pos, side === 'left' ? 1 : -1)
-      // right: probe AT the caret x (the after-space position at the end of the page above), not 2px
-      // left of it — that would land one char short. left: just inside the first glyph.
-      const gx = side === 'left' ? c.left + 2 : c.left
+      const gx = side === 'left' ? c.left + 2 : c.left - 2
       const gy = (c.top + c.bottom) / 2
       const d = document as CaretDoc
       let range: Range | null = null
@@ -92,21 +80,15 @@ export function CaretGutter(
     const at = view.posAtCoords({ left: edgeX(rect), top: e.clientY })
     if (!at) return
     let anchor = at.pos
-    let fixAffinity = side === 'left' && IS_WEBKIT
     if (side === 'right') {
-      // Leave the caret at posAtCoords — after the line's last word AND its trailing space (word +
-      // space) — for BOTH soft wraps mid-paragraph and real line ends. The ONE exception is a PAGE
-      // GAP: there posAtCoords landed on the next PAGE (it renders far below the click), so step back
-      // over the wrap whitespace to the end of the page above and force the caret onto it (a wrap
-      // boundary renders on the lower line otherwise).
-      let isPageGap = false
-      try { isPageGap = view.coordsAtPos(at.pos).top - e.clientY > 120 } catch { /* keep false */ }
-      // Keep the caret at posAtCoords (after word + space) like every other line; for a page gap its
-      // doc position straddles the boundary and renders on the next page, so force it to render at
-      // the end of the page ABOVE instead (the affinity fix below).
-      if (isPageGap) fixAffinity = true
+      // At a wrapped line's right edge posAtCoords lands PAST the wrap space (= start of the
+      // next line); step back over trailing whitespace so the caret sits after this line's
+      // last word. (No-op on the last line, which has no trailing wrap space.)
+      const doc = view.state.doc
+      let guard = 0
+      while (anchor > 0 && guard++ < 200 && /\s/.test(doc.textBetween(anchor - 1, anchor))) anchor--
     }
-    placeCaret(anchor, fixAffinity)
+    placeCaret(anchor) // a plain click leaves this collapsed caret (with the affinity fix)
 
     // Dragging out of the margin extends a selection from the line edge to the pointer.
     const strip = e.currentTarget as HTMLElement

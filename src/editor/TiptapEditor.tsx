@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useEditor, EditorContent, Extension } from '@tiptap/react'
-import { TextSelection } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import TextStyle from '@tiptap/extension-text-style'
 import FontFamily from '@tiptap/extension-font-family'
@@ -206,34 +205,6 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
         class: 'tiptap-editor',
         'data-placeholder': 'Begin writing…',
         spellcheck: 'false',
-      },
-      // Click after the last word of the line above a PAGE GAP: posAtCoords resolves to the start of
-      // the next page, so the caret jumps down. Detect ONLY the gap case — pos renders far below the
-      // click (a gap is ~230px; an ordinary soft wrap is one ~45px line, which must be left alone, a
-      // broader version of this regressed normal clicks) — and step back over the wrap whitespace so
-      // the caret lands at the end of the clicked line. (CaretGutter handles the side margins.)
-      handleClick(view, pos, event) {
-        try {
-          if (view.coordsAtPos(pos).top - event.clientY < 120) return false
-          const doc = view.state.doc
-          let p = pos
-          let guard = 0
-          while (p > 1 && guard++ < 50 && /\s/.test(doc.textBetween(p - 1, p))) p--
-          if (p === pos || p <= 0) return false
-          view.dispatch(view.state.tr.setSelection(TextSelection.create(doc, p)))
-          // The stepped-back position is a wrap boundary; the browser would render the caret on the
-          // lower line (next page). Force the DOM caret onto the page above from a point on its line.
-          const c = view.coordsAtPos(p, -1)
-          const range = document.caretRangeFromPoint?.(c.left - 1, (c.top + c.bottom) / 2)
-          if (range && view.dom.contains(range.startContainer)) {
-            range.collapse(true)
-            const sel = window.getSelection()
-            sel?.removeAllRanges()
-            sel?.addRange(range)
-          }
-          return true
-        } catch { /* coords unavailable — let ProseMirror place it */ }
-        return false
       },
     },
     onTransaction: ({ editor: e, transaction }) => {
