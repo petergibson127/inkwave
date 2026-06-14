@@ -24,6 +24,13 @@ const devApi: PluginOption = {
       if (path === '/api/sync-profile') return (await profile()).syncProfile(body)
       throw new Error('not found')
     }
+    // GET /api/me — the authed caller's cadence entitlement (reads the Clerk token header).
+    server.middlewares.use('/api/me', async (req, res) => {
+      // @ts-expect-error - untyped Node-only ESM module
+      const { getEntitlement } = await import('./api/_billing-core.mjs')
+      res.setHeader('content-type', 'application/json')
+      res.end(JSON.stringify(await getEntitlement(req.headers.authorization || '')))
+    })
     // GET /api/pubkey — the signing service's actual public key.
     server.middlewares.use('/api/pubkey', async (_req, res) => {
       // @ts-expect-error - untyped Node-only ESM module
