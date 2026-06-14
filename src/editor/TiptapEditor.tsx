@@ -579,12 +579,22 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
   }
 
   // Pick a Google Drive folder (Google's hosted Picker), then sync the file into it (fresh file).
+  // Sync directly with the token the picker already obtained — don't re-request it (avoids a stuck
+  // second consent overlay after the pick).
   async function chooseGoogleDriveFolder() {
     const folder = await pickGoogleDriveFolder()
     if (!folder) return
     clearGoogleDriveFile(docRef.current.id)
     setGdriveUrl(null)
-    await syncGoogleDrive()
+    const snaps = await listSnapshots(docRef.current.id)
+    const r = await syncToGoogleDrive(docRef.current, snaps)
+    if (r.ok) {
+      gdriveActiveRef.current = true
+      oneDriveActiveRef.current = false
+      setGdriveActive(true)
+      setLastGdriveSync(Date.now())
+      setGdriveUrl(r.webUrl)
+    }
   }
 
   // Choose which OneDrive folder to sync into. Needs a signed-in session; otherwise start sign-in

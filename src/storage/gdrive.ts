@@ -177,12 +177,14 @@ export async function pickGoogleDriveFolder(): Promise<{ id: string; name: strin
     const p = new picker.PickerBuilder()
       .setOAuthToken(token)
       .setDeveloperKey(API_KEY)
+      .setOrigin(`${window.location.protocol}//${window.location.host}`)
       .addView(view)
       .setCallback((data: { action: string; docs?: Array<{ id: string; name: string }> }) => {
-        if (data.action === picker.Action.PICKED && data.docs?.[0]) {
+        // Match the string too — some Picker builds don't expose Action.* the same way.
+        if ((data.action === picker.Action.PICKED || data.action === 'picked') && data.docs?.[0]) {
           setChosenGDriveFolder(data.docs[0].id)
           resolve({ id: data.docs[0].id, name: data.docs[0].name })
-        } else if (data.action === picker.Action.CANCEL) {
+        } else if (data.action === picker.Action.CANCEL || data.action === 'cancel') {
           resolve(null)
         }
       })
