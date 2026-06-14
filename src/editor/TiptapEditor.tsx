@@ -34,7 +34,7 @@ import { cadenceTierActive, getClerkToken } from '../auth/entitlement'
 import { buildExportBundle, bundleFilename, downloadBundle } from '../provenance/bundle'
 import { fileSaveAvailable, pickSaveFile, getSaveFileHandle, getSaveFileName, writeBundleToFile, readLocalHeartbeat } from '../storage/folder'
 import { oneDriveConfigured, oneDriveAccount, syncToOneDrive, startOneDriveSignIn, oneDriveSyncPending, clearOneDriveSyncPending, oneDrivePath, setChosenFolder, addRecentFolder, oneDriveFilename, setOneDriveFilename, readRemoteHeartbeat, type OneDriveFolder } from '../storage/onedrive'
-import { googleDriveConfigured, startGoogleDriveSignIn, syncToGoogleDrive, clearGoogleDriveFile } from '../storage/gdrive'
+import { googleDriveConfigured, startGoogleDriveSignIn, syncToGoogleDrive, clearGoogleDriveFile, pickGoogleDriveFolder } from '../storage/gdrive'
 import { isOtherDeviceActive } from '../sync/presence'
 import { SyncStatus } from '../components/SyncStatus'
 import { OneDriveFolderPicker } from '../components/OneDriveFolderPicker'
@@ -578,6 +578,15 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
     await syncGoogleDrive()
   }
 
+  // Pick a Google Drive folder (Google's hosted Picker), then sync the file into it (fresh file).
+  async function chooseGoogleDriveFolder() {
+    const folder = await pickGoogleDriveFolder()
+    if (!folder) return
+    clearGoogleDriveFile(docRef.current.id)
+    setGdriveUrl(null)
+    await syncGoogleDrive()
+  }
+
   // Choose which OneDrive folder to sync into. Needs a signed-in session; otherwise start sign-in
   // (we resume on return). On pick, remember the folder and sync there now.
   async function chooseOneDriveFolder() {
@@ -1028,6 +1037,7 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
                 oneDriveAccount={oneDriveAcct}
                 onSyncGoogleDrive={googleDriveConfigured() ? syncGoogleDrive : undefined}
                 onSaveAsGoogleDrive={saveAsGoogleDrive}
+                onChooseGoogleDriveFolder={googleDriveConfigured() ? chooseGoogleDriveFolder : undefined}
                 googleDriveActive={gdriveActive}
               />
             </div>

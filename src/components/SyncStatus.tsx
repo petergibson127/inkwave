@@ -89,7 +89,7 @@ export function SyncStatus({
           ~2 lines (a narrow width) so it never collides with the centred toolbar on a half-screen. */}
       <button
         type="button"
-        onClick={() => (onClick && !synced ? onClick() : setOpen((o) => !o))}
+        onClick={() => (onClick && !synced ? onClick() : window.dispatchEvent(new CustomEvent('inkwave:open-save')))}
         title={tooltip}
         className={compact
           ? 'flex items-center justify-center w-9 h-9 rounded-full bg-white shadow-sm text-lg'

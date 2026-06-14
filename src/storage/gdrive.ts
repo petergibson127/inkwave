@@ -112,8 +112,10 @@ async function uploadDrive(token: string, docId: string, name: string, content: 
     // 404 → the file was deleted in Drive; fall through and create a fresh one.
   }
   const boundary = `inkwave${Math.random().toString(36).slice(2)}`
+  const folder = getChosenGDriveFolder()
+  const metadata = folder ? { name, parents: [folder] } : { name }
   const body =
-    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ name })}\r\n` +
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
     `--${boundary}\r\nContent-Type: text/plain\r\n\r\n${content}\r\n--${boundary}--`
   const res = await fetch(`${UPLOAD}?uploadType=multipart&fields=id,webViewLink,parents`, {
     method: 'POST',
@@ -124,6 +126,69 @@ async function uploadDrive(token: string, docId: string, name: string, content: 
   const data = (await res.json()) as { id?: string; webViewLink?: string; parents?: string[] }
   if (data.id) setDriveFileId(docId, data.id)
   return folderUrl(data)
+}
+
+// ─── Chosen sync folder (global, like OneDrive) ────────────────────────────────
+const FOLDER_KEY = 'inkwave:gdrive-folder'
+export function getChosenGDriveFolder(): string | null {
+  try { return localStorage.getItem(FOLDER_KEY) } catch { return null }
+}
+export function setChosenGDriveFolder(id: string | null): void {
+  try { id ? localStorage.setItem(FOLDER_KEY, id) : localStorage.removeItem(FOLDER_KEY) } catch { /* private mode */ }
+}
+
+// ─── Google Picker (folder chooser) ─────────────────────────────────────────────
+// drive.file can't list the user's existing folders, so we use Google's hosted Picker: it browses
+// the user's Drive in Google's own UI and grants us access to the folder they select.
+type Picker = { setVisible: (v: boolean) => void }
+type PickerNS = {
+  DocsView: new (viewId: unknown) => { setSelectFolderEnabled: (b: boolean) => any; setMimeTypes: (m: string) => any }
+  ViewId: { FOLDERS: unknown }
+  PickerBuilder: new () => { setOAuthToken: (t: string) => any; setDeveloperKey: (k: string) => any; addView: (v: unknown) => any; setCallback: (cb: (d: { action: string; docs?: Array<{ id: string; name: string }> }) => void) => any; build: () => Picker }
+  Action: { PICKED: string; CANCEL: string }
+}
+
+let pickerLoad: Promise<void> | null = null
+function loadPicker(): Promise<void> {
+  if (pickerLoad) return pickerLoad
+  pickerLoad = new Promise((resolve, reject) => {
+    const w = window as unknown as { google?: { picker?: unknown }; gapi?: { load: (m: string, o: { callback: () => void }) => void } }
+    if (w.google?.picker) return resolve()
+    const s = document.createElement('script')
+    s.src = 'https://apis.google.com/js/api.js'
+    s.async = true
+    s.onload = () => w.gapi!.load('picker', { callback: () => resolve() })
+    s.onerror = () => reject(new Error('Google Picker failed to load'))
+    document.head.appendChild(s)
+  })
+  return pickerLoad
+}
+
+/** Open Google's folder Picker (interactive — call from a click); remembers + returns the choice. */
+export async function pickGoogleDriveFolder(): Promise<{ id: string; name: string } | null> {
+  const API_KEY = import.meta.env?.VITE_GOOGLE_API_KEY as string | undefined
+  if (!CLIENT_ID || !API_KEY) return null
+  const token = await getDriveToken(true)
+  if (!token) return null
+  await loadPicker()
+  const picker = (window as unknown as { google: { picker: PickerNS } }).google.picker
+  return new Promise((resolve) => {
+    const view = new picker.DocsView(picker.ViewId.FOLDERS).setSelectFolderEnabled(true).setMimeTypes('application/vnd.google-apps.folder')
+    const p = new picker.PickerBuilder()
+      .setOAuthToken(token)
+      .setDeveloperKey(API_KEY)
+      .addView(view)
+      .setCallback((data: { action: string; docs?: Array<{ id: string; name: string }> }) => {
+        if (data.action === picker.Action.PICKED && data.docs?.[0]) {
+          setChosenGDriveFolder(data.docs[0].id)
+          resolve({ id: data.docs[0].id, name: data.docs[0].name })
+        } else if (data.action === picker.Action.CANCEL) {
+          resolve(null)
+        }
+      })
+      .build()
+    p.setVisible(true)
+  })
 }
 
 export interface SyncResult { ok: boolean; webUrl: string | null }

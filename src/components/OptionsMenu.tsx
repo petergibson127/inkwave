@@ -76,6 +76,7 @@ export function OptionsMenu({
   oneDriveAccount,
   onSyncGoogleDrive,
   onSaveAsGoogleDrive,
+  onChooseGoogleDriveFolder,
   googleDriveActive,
 }: {
   paperRight: number
@@ -90,6 +91,7 @@ export function OptionsMenu({
   oneDriveAccount?: string | null
   onSyncGoogleDrive?: () => void
   onSaveAsGoogleDrive?: () => void
+  onChooseGoogleDriveFolder?: () => void
   googleDriveActive?: boolean
 }) {
   const navigate = useNavigate()
@@ -98,6 +100,13 @@ export function OptionsMenu({
   const rootRef = useRef<HTMLDivElement>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Clicking the sync pill (SyncStatus) opens this Save menu.
+  useEffect(() => {
+    const open = () => { setMenuOpen(false); setModal('save') }
+    window.addEventListener('inkwave:open-save', open)
+    return () => window.removeEventListener('inkwave:open-save', open)
+  }, [])
 
   async function onOpenFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -174,7 +183,7 @@ export function OptionsMenu({
 
       {modal && (
         <Modal title={MODAL_TITLES[modal]} onClose={() => setModal(null)}>
-          {modal === 'save' && <SavePanel onExportBundle={onExportBundle} onSave={onSave} onSaveAs={onSaveAs} folderAvailable={folderAvailable} folderName={folderName} onSyncOneDrive={onSyncOneDrive} onChooseOneDriveFolder={onChooseOneDriveFolder} onSaveAsOneDrive={onSaveAsOneDrive} oneDriveAccount={oneDriveAccount} onSyncGoogleDrive={onSyncGoogleDrive} onSaveAsGoogleDrive={onSaveAsGoogleDrive} googleDriveActive={googleDriveActive} onDone={() => setModal(null)} />}
+          {modal === 'save' && <SavePanel onExportBundle={onExportBundle} onSave={onSave} onSaveAs={onSaveAs} folderAvailable={folderAvailable} folderName={folderName} onSyncOneDrive={onSyncOneDrive} onChooseOneDriveFolder={onChooseOneDriveFolder} onSaveAsOneDrive={onSaveAsOneDrive} oneDriveAccount={oneDriveAccount} onSyncGoogleDrive={onSyncGoogleDrive} onSaveAsGoogleDrive={onSaveAsGoogleDrive} onChooseGoogleDriveFolder={onChooseGoogleDriveFolder} googleDriveActive={googleDriveActive} onDone={() => setModal(null)} />}
           {modal === 'recent' && <RecentPanel />}
         </Modal>
       )}
@@ -197,10 +206,10 @@ function MenuButton({ onClick, children }: { onClick?: () => void; children: Rea
   )
 }
 
-function SavePanel({ onExportBundle, onSave, onSaveAs, folderAvailable, folderName, onSyncOneDrive, onChooseOneDriveFolder, onSaveAsOneDrive, oneDriveAccount, onSyncGoogleDrive, onSaveAsGoogleDrive, googleDriveActive, onDone }: {
+function SavePanel({ onExportBundle, onSave, onSaveAs, folderAvailable, folderName, onSyncOneDrive, onChooseOneDriveFolder, onSaveAsOneDrive, oneDriveAccount, onSyncGoogleDrive, onSaveAsGoogleDrive, onChooseGoogleDriveFolder, googleDriveActive, onDone }: {
   onExportBundle?: () => void; onSave?: () => void; onSaveAs?: () => void; folderAvailable?: boolean; folderName?: string | null
   onSyncOneDrive?: () => void; onChooseOneDriveFolder?: () => void; onSaveAsOneDrive?: () => void; oneDriveAccount?: string | null
-  onSyncGoogleDrive?: () => void; onSaveAsGoogleDrive?: () => void; googleDriveActive?: boolean; onDone: () => void
+  onSyncGoogleDrive?: () => void; onSaveAsGoogleDrive?: () => void; onChooseGoogleDriveFolder?: () => void; googleDriveActive?: boolean; onDone: () => void
 }) {
   return (
     <div className="flex flex-col gap-2.5 mt-2">
@@ -238,6 +247,11 @@ function SavePanel({ onExportBundle, onSave, onSaveAs, folderAvailable, folderNa
       {!folderAvailable && onSyncGoogleDrive && !googleDriveActive && (
         <MenuButton onClick={() => { onSyncGoogleDrive(); onDone() }}>
           ▴ Sync to Google Drive<span className="block text-xs text-stone-400">sign in with Google — works in Firefox &amp; Safari</span>
+        </MenuButton>
+      )}
+      {!folderAvailable && googleDriveActive && onChooseGoogleDriveFolder && (
+        <MenuButton onClick={() => { onChooseGoogleDriveFolder(); onDone() }}>
+          🗁 Choose Google Drive folder<span className="block text-xs text-stone-400">pick where it syncs · updates as you write</span>
         </MenuButton>
       )}
       {!folderAvailable && googleDriveActive && onSaveAsGoogleDrive && (
