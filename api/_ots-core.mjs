@@ -37,12 +37,15 @@ export async function otsUpgrade(proofBase64, bundleHashHex) {
       const btc =
         result.bitcoin ?? result.Bitcoin ??
         Object.values(result).find((v) => v && (v.height || v.timestamp))
-      if (btc && (btc.height != null || btc.timestamp != null)) {
+      // Only claim 'confirmed' with GENUINE values — never fabricate block 0 / epoch time via `?? 0`.
+      // These fields are now only a hint anyway: the open verifier re-derives block height + time from
+      // the proof bytes against independent explorers and ignores any claim it can't reproduce.
+      if (btc && Number.isFinite(btc.height) && Number.isFinite(btc.timestamp) && btc.height > 0 && btc.timestamp > 0) {
         return {
           status: 'confirmed',
           proofBase64: upgraded,
-          bitcoinBlock: btc.height ?? 0,
-          bitcoinTime: new Date((btc.timestamp ?? 0) * 1000).toISOString(),
+          bitcoinBlock: btc.height,
+          bitcoinTime: new Date(btc.timestamp * 1000).toISOString(),
         }
       }
     }

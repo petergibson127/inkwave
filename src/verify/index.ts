@@ -9,7 +9,12 @@
 //   3. kick consistency — every logged in-S kick's lemma was actually in that period's SIGNED set
 //      (decode the bitmask) — a fabricated kick log can't match the signed sets;
 //   4. friction — observed kicks ÷ content words, surfaced honestly against a plausibility floor;
-//   5. existence — tally the OTS → Bitcoin anchoring state across snapshots.
+//   5. anchor — REAL OTS verification: deserialize each snapshot's proof, confirm it commits to that
+//      snapshot's bundleHash, and check the committed digest against the cited Bitcoin block's merkle
+//      root via independent explorers. Block height/time are derived from the proof + chain, never
+//      from the author's JSON; the author's claimed status/block/time are cross-checked and a lie
+//      fails the bundle. We also check serverTime ≤ the verified block time (a signed timestamp can't
+//      post-date the block that anchors it).
 //
 // HONEST LIMITATION: the full "no silent dodging" replay (every off-limits committed word has a
 // resolved kick) needs the per-period content diffs; the bundle carries periodic content *hashes*
@@ -21,6 +26,7 @@ import type { SignedReceipt, TiptapJSON } from '../types/document'
 import { canonicalize, sha256Hex, bundleHash } from '../provenance/hash'
 import { verifyChain, bitmaskToLemmas, PUBLISHED_SIGNING_PK } from '../provenance/receipts'
 import { cadenceDigest, BIN_MS } from '../provenance/cadence'
+import { verifyOtsProof, defaultFetchBlock, type BlockFetcher } from './ots'
 
 // A 0.5 s bin holding more than this many inserted chars (~240 chars/sec) is not human typing — it's
 // a paste. Surfaced honestly; the cadence test is public and cannot carry a guarantee it can't.
@@ -36,6 +42,16 @@ export interface VerifyReport {
   // only when revealed bins don't match their signed digest (tamper). Plausibility is surfaced, not
   // asserted — see the spec ceiling.
   cadence: { withDigest: number; revealed: number; bins: number; ins: number; del: number; integrityOk: boolean; pasteSuspectBins: number; note: string }
+  // Bitcoin anchoring, ACTUALLY verified (not trusted from the bundle's JSON). `confirmed` snapshots
+  // had their proof checked against a real block's merkle root via independent explorers; `tampered`
+  // is fatal (proof contradicts the chain, or the author's claimed block/time is a lie). `ok` gates
+  // the bundle; `inconclusive` (couldn't reach an explorer) and `unstamped` never fail it.
+  anchor: {
+    snapshots: number; confirmed: number; pending: number; unstamped: number; inconclusive: number
+    tampered: number; earliestBlockTime: string | null; timeConsistent: boolean; anchoredReceipts: number
+    ok: boolean; note: string
+  }
+  // Legacy summary the /verify UI still reads — now derived from REAL verification, not the JSON.
   existence: { snapshots: number; confirmed: number; pending: number; unstamped: number }
   overall: boolean
 }
@@ -135,29 +151,89 @@ async function verifyCadence(bundle: ExportBundle): Promise<VerifyReport['cadenc
   return { withDigest, revealed, bins, ins, del, integrityOk, pasteSuspectBins, note }
 }
 
-function existenceTally(bundle: ExportBundle): VerifyReport['existence'] {
-  let confirmed = 0, pending = 0, unstamped = 0
+// REAL Bitcoin anchoring verification (the M5 security fix). For each snapshot we deserialize the OTS
+// proof, confirm it commits to that snapshot's bundleHash, and check the committed digest against the
+// cited block's merkle root via independent explorers. The author's claimed status/block/time are
+// cross-checked — claiming a block we can't confirm, or a different block/time than the proof yields,
+// is `tampered` and fails the bundle.
+async function verifyAnchors(bundle: ExportBundle, fetchBlock: BlockFetcher): Promise<VerifyReport['anchor']> {
+  let confirmed = 0, pending = 0, unstamped = 0, inconclusive = 0, tampered = 0
+  let earliest: string | null = null
+  let timeConsistent = true
+  const reasons: string[] = []
+
   for (const s of bundle.snapshots) {
-    if (s.ots.status === 'confirmed') confirmed++
-    else if (s.ots.status === 'pending') pending++
-    else unstamped++
+    const ots = s.ots
+    // No proof bytes at all → legitimately not anchored (free tier / not yet stamped). Not a failure…
+    if (!ots.proofBase64) {
+      // …unless the bundle CLAIMS it's anchored without carrying a proof. That's a bare lie.
+      if (ots.status === 'confirmed' || ots.status === 'pending') {
+        tampered++; reasons.push(`snapshot ${s.id}: claims "${ots.status}" but carries no proof`)
+      } else unstamped++
+      continue
+    }
+
+    const res = await verifyOtsProof(ots.proofBase64, s.bundleHash, fetchBlock)
+    if (res.status === 'confirmed') {
+      confirmed++
+      // Cross-check the author's claims against what the proof actually yields.
+      if (ots.bitcoinBlock != null && ots.bitcoinBlock !== res.height) {
+        tampered++; reasons.push(`snapshot ${s.id}: claims block ${ots.bitcoinBlock} but proof anchors to ${res.height}`)
+      }
+      if (res.blockTime && (!earliest || res.blockTime < earliest)) earliest = res.blockTime
+      // serverTime can't post-date the block that anchors the snapshot's receipts.
+      for (const r of s.receipts ?? []) {
+        if (res.blockTime && r.serverTime > res.blockTime) {
+          timeConsistent = false
+          reasons.push(`snapshot ${s.id}: a receipt's serverTime (${r.serverTime}) is after the Bitcoin block time (${res.blockTime})`)
+        }
+      }
+    } else if (res.status === 'pending') {
+      pending++
+      if (ots.status === 'confirmed') { tampered++; reasons.push(`snapshot ${s.id}: claims "confirmed" but proof is only pending`) }
+    } else if (res.status === 'inconclusive') {
+      inconclusive++ // couldn't reach an explorer — can't confirm, can't refute
+    } else {
+      // 'unverified' — a present proof that fails binding or the merkle check: tampering.
+      tampered++; reasons.push(`snapshot ${s.id}: ${res.reason ?? 'proof does not verify'}`)
+    }
   }
-  return { snapshots: bundle.snapshots.length, confirmed, pending, unstamped }
+
+  // Informational: which verified receipts are actually committed by a snapshot (and so anchored).
+  const anchored = new Set<string>()
+  for (const s of bundle.snapshots) for (const r of s.receipts ?? []) anchored.add(r.signature)
+  const anchoredReceipts = bundle.receipts.filter((r) => anchored.has(r.signature)).length
+
+  const ok = tampered === 0 && timeConsistent
+  const note = !ok
+    ? reasons.slice(0, 3).join('; ')
+    : confirmed > 0
+      ? `${confirmed} snapshot(s) verified against Bitcoin${earliest ? ` (earliest block ${earliest.slice(0, 10)})` : ''}${inconclusive ? `; ${inconclusive} unconfirmable offline` : ''}`
+      : pending > 0 ? `${pending} awaiting Bitcoin confirmation`
+      : inconclusive > 0 ? 'could not reach a block explorer — anchoring unconfirmed'
+      : 'no Bitcoin anchoring in this bundle'
+  return { snapshots: bundle.snapshots.length, confirmed, pending, unstamped, inconclusive, tampered, earliestBlockTime: earliest, timeConsistent, anchoredReceipts, ok, note }
 }
 
 /**
  * Verify an export bundle end-to-end. Defaults to the INDEPENDENTLY published signing key — a
  * verifier must not trust the key the bundle carries.
  */
-export async function verifyBundle(bundle: ExportBundle, pubKeyHex: string = PUBLISHED_SIGNING_PK): Promise<VerifyReport> {
+export async function verifyBundle(
+  bundle: ExportBundle,
+  pubKeyHex: string = PUBLISHED_SIGNING_PK,
+  fetchBlock: BlockFetcher = defaultFetchBlock,
+): Promise<VerifyReport> {
   const contentIntegrity = await checkContentIntegrity(bundle)
   const chain = await checkChains(bundle, pubKeyHex)
   const kickConsistency = checkKickConsistency(bundle)
   const friction = frictionScore(bundle)
   const cadence = await verifyCadence(bundle)
-  const existence = existenceTally(bundle)
-  // Revealed cadence bins that don't match their signed digest are tamper — fail. Absent/unrevealed
-  // cadence never fails a bundle (plausibility is surfaced, not gating).
-  const overall = contentIntegrity.ok && chain.ok && kickConsistency.ok && cadence.integrityOk
-  return { contentIntegrity, chain, kickConsistency, friction, cadence, existence, overall }
+  const anchor = await verifyAnchors(bundle, fetchBlock)
+  const existence = { snapshots: anchor.snapshots, confirmed: anchor.confirmed, pending: anchor.pending, unstamped: anchor.unstamped }
+  // A bundle fails if content/chain/kick integrity fails, revealed cadence contradicts its signed
+  // digest, OR a Bitcoin proof is forged / its claimed block/time is a lie (anchor.ok). Absent or
+  // merely-unconfirmable anchoring never fails a bundle — plausibility is surfaced, not asserted.
+  const overall = contentIntegrity.ok && chain.ok && kickConsistency.ok && cadence.integrityOk && anchor.ok
+  return { contentIntegrity, chain, kickConsistency, friction, cadence, anchor, existence, overall }
 }

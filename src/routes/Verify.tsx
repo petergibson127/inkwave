@@ -43,8 +43,9 @@ export function Verify() {
       <div className="w-full max-w-xl">
         <h1 className="text-2xl mb-1" style={{ color: INK }}>Verify an Inkwave record</h1>
         <p className="text-sm text-stone-500 mb-5">
-          Runs entirely in your browser, against Inkwave's published signing key and Bitcoin —
-          no sign-in, nothing uploaded. <Link to="/" className="underline" style={{ color: LIGHT }}>← editor</Link>
+          Runs entirely in your browser against Inkwave's published signing key — and, for anchored
+          snapshots, against the Bitcoin blockchain via independent explorers. No sign-in, nothing
+          uploaded. <Link to="/" className="underline" style={{ color: LIGHT }}>← editor</Link>
         </p>
 
         <label
@@ -77,7 +78,9 @@ export function Verify() {
                  detail={report.kickConsistency.ok ? `${report.kickConsistency.checked} kick(s) match the signed sets` : report.kickConsistency.reason} />
             <Row label="Friction" detail={report.friction.note} />
             <Row label="Bitcoin anchoring"
-                 detail={`${report.existence.confirmed} confirmed · ${report.existence.pending} pending · ${report.existence.unstamped} local (of ${report.existence.snapshots})`} />
+                 ok={report.anchor.tampered > 0 || !report.anchor.timeConsistent ? false
+                     : report.anchor.confirmed > 0 ? true : undefined}
+                 detail={report.anchor.note} />
 
             <p className="mt-4 text-xs text-stone-400">
               This confirms an authentic Inkwave session composed live against unpredictable

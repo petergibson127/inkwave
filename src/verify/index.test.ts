@@ -99,4 +99,24 @@ describe('verifyBundle', () => {
     expect(r.friction.contentWords).toBeGreaterThan(0)
     expect(typeof r.friction.note).toBe('string')
   })
+
+  // The 2026-06-13 audit's CRITICAL attack: hand-edit the ots block to claim a Bitcoin confirmation
+  // that isn't backed by a real proof. The verifier must no longer take that on faith.
+  it('fails a bundle that CLAIMS Bitcoin confirmation with no proof', async () => {
+    const b = await buildValidBundle()
+    b.snapshots[0].ots = { status: 'confirmed', bitcoinBlock: 800_000, bitcoinTime: '2024-01-01T00:00:00.000Z' }
+    const r = await verifyBundle(b, DEV_SIGNING_PK)
+    expect(r.anchor.tampered).toBe(1)
+    expect(r.anchor.ok).toBe(false)
+    expect(r.overall).toBe(false)
+  })
+
+  // A genuine bundle with un-anchored (unstamped) snapshots is NOT a failure — anchoring is optional.
+  it('passes an unstamped bundle and never touches the network', async () => {
+    let fetched = false
+    const r = await verifyBundle(await buildValidBundle(), DEV_SIGNING_PK, async () => { fetched = true; return null })
+    expect(fetched).toBe(false)
+    expect(r.anchor.unstamped).toBe(1)
+    expect(r.overall).toBe(true)
+  })
 })
