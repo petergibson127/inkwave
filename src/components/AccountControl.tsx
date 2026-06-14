@@ -2,7 +2,7 @@ import { SignedIn, SignedOut, useUser, useClerk } from '@clerk/clerk-react'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { authEnabled } from '../auth/config'
-import { useCadenceTier, stripeClientSecret, paypalApproveUrl, refreshEntitlement } from '../auth/entitlement'
+import { useCadenceTier, stripeClientSecret, refreshEntitlement } from '../auth/entitlement'
 
 // On sign-in, ping the webhook-free email capture once per user (the server reads the real email
 // from Clerk and upserts it to Supabase). Fails silently if unconfigured. No webhook required.
@@ -68,7 +68,6 @@ function loadStripe(pk: string): Promise<StripeObj | null> {
 function InsigniaModal({ onClose }: { onClose: () => void }) {
   const PK = import.meta.env?.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined
   const [done, setDone] = useState(false)
-  const [busy, setBusy] = useState(false)
   const [info, setInfo] = useState(false)
   const cardRef = useRef<HTMLDivElement>(null)
   const checkoutRef = useRef<StripeEmbedded | null>(null)
@@ -96,20 +95,6 @@ function InsigniaModal({ onClose }: { onClose: () => void }) {
     return () => { cancelled = true; try { checkoutRef.current?.destroy() } catch { /* noop */ } checkoutRef.current = null }
   }, [PK, done])
 
-  function payPaypal() {
-    // Open the popup SYNCHRONOUSLY (inside the click) so it isn't blocked, then point it at PayPal's
-    // approval URL once we have it. PayPal can't embed, so it's a link out to PayPal's own popup.
-    const popup = window.open('about:blank', 'inkwave-pay', 'width=460,height=820')
-    setBusy(true)
-    void paypalApproveUrl().then((url) => {
-      setBusy(false)
-      if (!url) { try { popup?.close() } catch { /* noop */ } return }
-      if (popup) popup.location.href = url
-      pollAfterPayment(() => onCloseRef.current())
-      onClose()
-    })
-  }
-
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onMouseDown={onClose}>
       <div className="absolute inset-0 bg-stone-900/20" aria-hidden="true" />
@@ -123,21 +108,18 @@ function InsigniaModal({ onClose }: { onClose: () => void }) {
             className="w-5 h-5 flex items-center justify-center rounded-full border border-stone-300 text-stone-400 text-xs leading-none hover:text-[#5c2d8a] hover:border-[#5c2d8a]">i</button>
         </div>
         {info && (
-          <p className="text-xs text-stone-500 text-center mt-2 max-w-sm mx-auto">
-            Insignia signs your keystroke cadence into your provenance record — tamper-evident
-            evidence your writing was composed live, at a human pace, not pasted or generated.
-            Cancel anytime.
+          <p className="text-xs text-stone-500 text-left mt-2 max-w-sm mx-auto leading-relaxed">
+            Inkwave already records the provenance of everything you write — a tamper-evident,
+            independently-verifiable trail proving the document was composed live, in your browser,
+            against constraints you couldn't predict. Insignia adds one more signal to that record:
+            a signed digest of your keystroke <em>cadence</em> — how many characters you typed and
+            deleted in each half-second, never the characters themselves. It's privacy-preserving by
+            construction: the signing service only ever sees a hash, so your writing stays yours.
+            Later, when you choose to reveal it, that cadence is evidence your work unfolded at a
+            human rhythm — not pasted in or machine-generated. $15 AUD/month, cancel anytime.
           </p>
         )}
-        <div className="flex items-baseline justify-center gap-3 mt-2 mb-4">
-          <span className="text-sm text-stone-500">$15 AUD per month</span>
-          {!done && (
-            <button type="button" disabled={busy} onClick={payPaypal}
-              className="text-base text-[#5c2d8a] underline hover:opacity-70 disabled:opacity-50">
-              pay with PayPal
-            </button>
-          )}
-        </div>
+        <p className="text-sm text-stone-500 text-center mt-2 mb-4">$15 AUD per month</p>
         {done ? (
           <p className="text-center text-[#5c2d8a] py-10">✓ Payment received — activating Insignia…</p>
         ) : PK ? (

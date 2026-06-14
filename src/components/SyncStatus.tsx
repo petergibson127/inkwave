@@ -51,7 +51,7 @@ export function SyncStatus({
     >
       {/* Detail panel — opens UPWARD, fixed width, path wraps inside it. */}
       {open && (
-        <div className="mb-2 w-64 bg-white shadow-lg rounded-xl p-3 text-stone-600" style={{ border: `1px solid ${INK}40` }}>
+        <div className="mb-2 w-64 max-lg:w-[7.7rem] bg-white shadow-lg rounded-xl p-3 text-stone-600" style={{ border: `1px solid ${INK}40` }}>
           <div className="text-xs text-stone-400 mb-1.5">
             {synced && lastSync ? `synced ${relativeTime(lastSync)}` : 'not syncing yet — your work is still saved on this device'}
           </div>
@@ -93,7 +93,7 @@ export function SyncStatus({
         title={tooltip}
         className={compact
           ? 'flex items-center justify-center w-9 h-9 rounded-full bg-white shadow-sm text-lg'
-          : 'cursor-pointer rounded-full bg-white/70 hover:bg-white transition-colors text-right leading-tight text-sm px-2.5 py-0.5 max-w-[7.5rem] max-lg:text-xs max-lg:px-2 max-lg:max-w-[5.5rem]'}
+          : 'cursor-pointer rounded-full bg-white/70 hover:bg-white transition-colors text-right leading-tight text-sm px-2.5 py-0.5 max-w-[7.5rem] max-lg:text-xs max-lg:px-1.5 max-lg:max-w-[5rem]'}
         style={{ color: synced ? '#6b7280' : '#b45309', border: compact ? `1px solid ${INK}66` : undefined }}
       >
         {compact ? (synced ? '☁' : '☁') : label}

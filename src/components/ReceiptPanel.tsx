@@ -52,7 +52,7 @@ export function ReceiptPanel({
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className={compact ? 'flex items-center justify-center w-9 h-9 bg-white text-lg' : 'bg-white leading-tight text-left px-2.5 py-1 max-w-[7.5rem] max-lg:text-xs max-lg:px-2 max-lg:py-0.5 max-lg:max-w-[5.5rem]'}
+          className={compact ? 'flex items-center justify-center w-9 h-9 bg-white text-lg' : 'bg-white leading-tight text-left px-2.5 py-1 max-w-[7.5rem] max-lg:max-w-[7.2rem]'}
           style={{ border: '1px solid rgba(92, 45, 138, 0.75)', borderRadius: compact ? 9999 : 12 }}
           title="Provenance record (held by you)"
         >
@@ -61,8 +61,8 @@ export function ReceiptPanel({
 
         {panelOpen && (
           <div
-            className="mt-1.5 bg-white overflow-auto"
-            style={{ border: '1px solid rgba(92, 45, 138, 0.4)', borderRadius: 10, maxHeight: '40vh', width: 150 }}
+            className="mt-1.5 bg-white overflow-auto w-[150px] max-lg:w-[120px]"
+            style={{ border: '1px solid rgba(92, 45, 138, 0.4)', borderRadius: 10, maxHeight: '40vh' }}
           >
             {typeof wordCount === 'number' && (
               <div className="px-2.5 py-1.5 text-stone-500 tabular-nums" style={{ borderBottom: '1px solid rgba(92, 45, 138, 0.12)' }}>
