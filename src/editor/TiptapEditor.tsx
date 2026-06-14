@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useEditor, EditorContent, Extension } from '@tiptap/react'
-import { TextSelection } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import TextStyle from '@tiptap/extension-text-style'
 import FontFamily from '@tiptap/extension-font-family'
@@ -206,28 +205,6 @@ export function TiptapEditor({ doc, onDocChange }: TiptapEditorProps) {
         class: 'tiptap-editor',
         'data-placeholder': 'Begin writing…',
         spellcheck: 'false',
-      },
-      // Clicking after the last word of a line that's followed by a page gap (or a soft wrap) can
-      // resolve to a position that RENDERS on the next line / next page. Detect that the landed
-      // position is below the click, and step the caret back over the wrap whitespace to the line
-      // that was actually clicked. (CaretGutter does this for the side margins; this covers clicks
-      // inside the text column, past a short last line.)
-      handleClick(view, pos, event) {
-        try {
-          if (view.coordsAtPos(pos).top <= event.clientY) return false // already on the clicked line
-          const doc = view.state.doc
-          let p = pos
-          let guard = 0
-          while (p > 0 && guard++ < 200 && /\s/.test(doc.textBetween(p - 1, p))) {
-            p--
-            if (view.coordsAtPos(p).top <= event.clientY) break
-          }
-          if (p !== pos) {
-            view.dispatch(view.state.tr.setSelection(TextSelection.create(doc, p)))
-            return true
-          }
-        } catch { /* coords unavailable — let ProseMirror handle it */ }
-        return false
       },
     },
     onTransaction: ({ editor: e, transaction }) => {
