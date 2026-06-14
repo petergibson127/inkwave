@@ -126,19 +126,27 @@ export const PaginationExtension = Extension.create<PaginationOptions>({
           let raf = 0
           let paintRaf = 0
           let lastSig = ''
-          const sheet = (view.dom as HTMLElement).closest('.scroll-paper') as HTMLElement | null
+          let sheet: HTMLElement | null = null
+          let layer: HTMLElement | null = null
+          let observed = false
+          const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => schedule()) : null
 
           // A background layer of REAL parchment sheet panels, one per page, positioned at the
           // measured page regions (between the gap bands). Each is its own <div>, so it gets a real
           // 4-side drop shadow + rounded corners — discrete sheets like Word — and the gaps between
           // them are genuinely transparent, so the fixed background + waves show through and match
           // the surroundings exactly. Lives behind the text (z-index 0); text container is z-index 1.
-          let layer: HTMLElement | null = null
-          if (sheet) {
-            layer = document.createElement('div')
-            layer.className = 'inkwave-sheets'
-            layer.setAttribute('aria-hidden', 'true')
-            sheet.insertBefore(layer, sheet.firstChild)
+          // Resolved LAZILY: at plugin-view construction the editor isn't inside .scroll-paper yet.
+          const ensureSheet = () => {
+            if (!sheet) sheet = (view.dom as HTMLElement).closest('.scroll-paper') as HTMLElement | null
+            if (sheet && !layer) {
+              layer = document.createElement('div')
+              layer.className = 'inkwave-sheets'
+              layer.setAttribute('aria-hidden', 'true')
+              sheet.insertBefore(layer, sheet.firstChild)
+            }
+            if (sheet && ro && !observed) { ro.observe(sheet); observed = true }
+            return sheet
           }
           // Position panels at every region NOT covered by a gap band: [0..band0], [band0..band1], …
           const paint = () => {
@@ -175,6 +183,7 @@ export const PaginationExtension = Extension.create<PaginationOptions>({
 
           const recompute = () => {
             raf = 0
+            ensureSheet()
             const pageH = (sheet ? sheet.clientWidth : 794) * Math.SQRT2
             if (sheet) sheet.classList.add('inkwave-gapped')
             const { set, sig } = compute(view, pageH)
@@ -183,8 +192,6 @@ export const PaginationExtension = Extension.create<PaginationOptions>({
             schedulePaint()
           }
           const schedule = () => { if (!raf) raf = requestAnimationFrame(recompute) }
-          const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : null
-          if (ro && sheet) ro.observe(sheet)
           schedule()
           return {
             update: schedule,
