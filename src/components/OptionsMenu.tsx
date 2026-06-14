@@ -114,7 +114,6 @@ export function OptionsMenu({
     { label: 'Open Recent', run: () => setModal('recent') },
     { label: 'Save…', run: () => setModal('save') },
     { label: `Gapped pages ${gappedPagesEnabled() ? '✓' : '✗'}`, run: () => { setGappedPages(!gappedPagesEnabled()); window.location.reload() } },
-    { label: 'Sign in', run: () => navigate('/login') },
     { label: 'About', run: () => navigate('/about') },
   ]
   if (import.meta.env.DEV) {

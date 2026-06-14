@@ -46,6 +46,20 @@ export function cadenceTierActive(): boolean {
   return cached
 }
 
+/** Start a checkout: ask the server for a provider URL (authed) → caller redirects there. */
+export async function startCheckout(provider: 'stripe' | 'paypal'): Promise<string | null> {
+  const token = await clerkToken()
+  if (!token) return null // not signed in — caller should send them to /login
+  const path = provider === 'stripe' ? '/api/stripe-checkout' : '/api/paypal-subscribe'
+  try {
+    const res = await fetch(path, { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
+    const data = (await res.json()) as { url?: string }
+    return data.url ?? null
+  } catch {
+    return null
+  }
+}
+
 /** React hook: entitlement state, refreshed on mount (and re-checkable). */
 export function useCadenceTier(): { active: boolean; loading: boolean; refresh: () => void } {
   const [active, setActive] = useState(cached)

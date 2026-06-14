@@ -31,6 +31,43 @@ const devApi: PluginOption = {
       res.setHeader('content-type', 'application/json')
       res.end(JSON.stringify(await getEntitlement(req.headers.authorization || '')))
     })
+    // POST /api/stripe-checkout & /api/paypal-subscribe — authed (Clerk Bearer) → { url } to redirect to.
+    const authedUrl = (importer: () => Promise<{ [k: string]: (a: string, o: string) => Promise<{ status: number; body: unknown }> }>, fn: string) =>
+      (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
+        if (req.method !== 'POST') { res.statusCode = 405; return res.end('Method Not Allowed') }
+        void (async () => {
+          const mod = await importer()
+          const origin = (req.headers.origin as string) || `http://${req.headers.host}`
+          const r = await mod[fn](String(req.headers.authorization || ''), origin)
+          res.statusCode = r.status
+          res.setHeader('content-type', 'application/json')
+          res.end(JSON.stringify(r.body))
+        })().catch(() => { res.statusCode = 500; res.end(JSON.stringify({ error: 'failed' })) })
+      }
+    // @ts-expect-error - untyped Node-only ESM module
+    server.middlewares.use('/api/stripe-checkout', authedUrl(() => import('./api/stripe-checkout.mjs'), 'createStripeCheckout'))
+    // @ts-expect-error - untyped Node-only ESM module
+    server.middlewares.use('/api/paypal-subscribe', authedUrl(() => import('./api/paypal-subscribe.mjs'), 'createPaypalSubscription'))
+    // POST webhooks — Web-Request handlers needing the RAW body for signature verification.
+    const webhook = (importer: () => Promise<{ default: (r: Request) => Promise<Response> }>) =>
+      (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
+        let raw = ''
+        req.on('data', (c) => { raw += c })
+        req.on('end', () => { void (async () => {
+          const mod = await importer()
+          const headers: Record<string, string> = {}
+          for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string') headers[k] = v
+          const request = new Request(`http://${req.headers.host}${req.url}`, { method: req.method, headers, body: raw || undefined })
+          const response = await mod.default(request)
+          res.statusCode = response.status
+          response.headers.forEach((v, k) => res.setHeader(k, v))
+          res.end(await response.text())
+        })().catch(() => { res.statusCode = 500; res.end(JSON.stringify({ error: 'webhook failed' })) }) })
+      }
+    // @ts-expect-error - untyped Node-only ESM module
+    server.middlewares.use('/api/stripe-webhook', webhook(() => import('./api/stripe-webhook.mjs')))
+    // @ts-expect-error - untyped Node-only ESM module
+    server.middlewares.use('/api/paypal-webhook', webhook(() => import('./api/paypal-webhook.mjs')))
     // GET /api/pubkey — the signing service's actual public key.
     server.middlewares.use('/api/pubkey', async (_req, res) => {
       // @ts-expect-error - untyped Node-only ESM module
